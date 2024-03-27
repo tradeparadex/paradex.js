@@ -2,7 +2,7 @@
   "name": "paradex-account",
   "version": "0.1.0",
   "description": "Enables Ethereum signers to generate Paradex account info.",
-  "main": "index.js",
+  "main": "dist/index.js",
   "license": "MIT",
   "private": false,
   "dependencies": {
