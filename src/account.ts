@@ -41,7 +41,7 @@ export function fromEthSignature(config: ParadexConfig, signature: string) {
   const privateKey = keyDerivation.getPrivateKeyFromEthSignature(signature);
   const publicKey = keyDerivation.privateToStarkKey(privateKey);
   const address = generateAccountAddress({
-    publicKey,
+    publicKey: `0x${publicKey}`,
     accountClassHash: config.paraclear_account_hash,
     accountProxyClassHash: config.paraclear_account_proxy_hash,
   });
