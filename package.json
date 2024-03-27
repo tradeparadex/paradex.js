@@ -1,7 +1,7 @@
 {
-  "name": "paradex-account",
+  "name": "@tradeparadex/paradex-account",
   "version": "0.1.0",
-  "description": "Enables Ethereum signers to generate Paradex account info.",
+  "description": "Generate Paradex account info from an Ethereum signature.",
   "main": "dist/index.js",
   "license": "MIT",
   "private": false,

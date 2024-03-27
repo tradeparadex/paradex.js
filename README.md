@@ -1,5 +1,7 @@
 # paradex-account
 
+Generate Paradex account info from an Ethereum signature.
+
 ## Install
 
 ```sh
