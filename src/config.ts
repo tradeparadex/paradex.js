@@ -4,9 +4,9 @@ export interface ParadexConfig {
   readonly paraclear_account_proxy_hash: string;
 }
 
-type ParadexEnvironment = "testnet" | "mainnet";
+type ParadexEnvironment = "testnet" | "prod";
 
-const API_URL_MAINNET = "https://api.prod.paradex.trade/v1";
+const API_URL_PROD = "https://api.prod.paradex.trade/v1";
 const API_URL_TESTNET = "https://api.testnet.paradex.trade/v1";
 
 /**
@@ -16,7 +16,7 @@ const API_URL_TESTNET = "https://api.testnet.paradex.trade/v1";
 export async function fetchConfig(
   environment: ParadexEnvironment
 ): Promise<ParadexConfig> {
-  const apiUrl = environment === "testnet" ? API_URL_TESTNET : API_URL_MAINNET;
+  const apiUrl = environment === "testnet" ? API_URL_TESTNET : API_URL_PROD;
   const resp = await fetch(`${apiUrl}/system/config`);
   const jsonResp = await resp.json();
   return jsonResp;
