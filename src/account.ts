@@ -1,7 +1,7 @@
-import { keyDerivation } from "@starkware-industries/starkware-crypto-utils";
-import { CallData, hash } from "starknet";
+import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
+import { CallData, hash } from 'starknet';
 
-import type { ParadexConfig } from "./config";
+import type { ParadexConfig } from './config';
 
 /**
  * Returns the typed data that needs to be signed by an Ethereum
@@ -11,21 +11,21 @@ import type { ParadexConfig } from "./config";
 export function buildStarkKeyTypedData(config: ParadexConfig) {
   return {
     domain: {
-      name: "Paradex",
+      name: 'Paradex',
       chainId: config.l1_chain_id,
-      version: "1",
+      version: '1',
     },
-    primaryType: "Constant",
+    primaryType: 'Constant',
     types: {
       EIP712Domain: [
-        { name: "name", type: "string" },
-        { name: "version", type: "string" },
-        { name: "chainId", type: "uint256" },
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' },
       ],
-      Constant: [{ name: "action", type: "string" }],
+      Constant: [{ name: 'action', type: 'string' }],
     },
     message: {
-      action: "STARK Key",
+      action: 'STARK Key',
     },
   } as const;
 }
@@ -67,10 +67,10 @@ function generateAccountAddress({
 }: GenerateAccountAddressParams) {
   const callData = CallData.compile({
     implementation: accountClassHash,
-    selector: hash.getSelectorFromName("initialize"),
+    selector: hash.getSelectorFromName('initialize'),
     calldata: CallData.compile({
       signer: publicKey,
-      guardian: "0",
+      guardian: '0',
     }),
   });
 
@@ -78,7 +78,7 @@ function generateAccountAddress({
     publicKey,
     accountProxyClassHash,
     callData,
-    0
+    0,
   );
 
   return address;
