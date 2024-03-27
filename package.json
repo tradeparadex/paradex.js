@@ -9,6 +9,7 @@
   "scripts": {
     "prepare": "husky && yarn build",
     "build": "yarn tsc",
+    "lint": "prettier --check .",
     "format": "prettier --write ."
   },
   "lint-staged": {
