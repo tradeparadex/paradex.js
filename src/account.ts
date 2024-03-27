@@ -49,11 +49,11 @@ export function fromEthSignature(config: ParadexConfig, signature: string) {
 }
 
 interface GenerateAccountAddressParams {
-  /** The hash of the account contract */
+  /** The hash of the account contract in hex format */
   readonly accountClassHash: string;
-  /** The hash of the account proxy contract */
+  /** The hash of the account proxy contract in hex format */
   readonly accountProxyClassHash: string;
-  /** The public key of the account */
+  /** The public key of the account in hex format */
   readonly publicKey: string;
 }
 
