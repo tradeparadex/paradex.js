@@ -1,32 +1,54 @@
-# paradex-account
-
-Generate Paradex account info from an Ethereum signature.
+# Paradex SDK
 
 ## Install
 
 ```sh
-npm install --save paradex-account
+npm install --save @tradeparadex/paradex
 ```
 
 ```sh
-yarn add paradex-account
+yarn add @tradeparadex/paradex
 ```
 
-## Usage
+## Use cases
+
+### Get Paradex account address from Ethereum signer
+
+This example uses `ethers` as a dependency to provide an Ethereum signer. If you need support for other libraries, [get in touch].
 
 ```ts
-import * as ParadexAccount from 'paradex-account';
+import { ethers } from 'ethers';
+import * as Paradex from '@tradeparadex/paradex';
 
 // 1. Fetch Paradex config for the relevant environment
-const config = await ParadexAccount.fetchConfig('testnet'); // "testnet" | "mainnet"
+// Supported environments:
+//  - 'testnet' (Sepolia Testnet)
+//  - 'mainnet' (Ethereum Mainnet)
+const config = await Paradex.Config.fetchConfig('testnet');
 
-// 2. Build the typed data that needs to be signed by the user in order to derive the account
-const typedData = ParadexAccount.buildStarkKeyTypedData(config);
+// 2. Get ethers signer (example with injected provider)
+const ethersProvider = new ethers.BrowserProvider(window.ethereum);
+const ethersSigner = await ethersProvider.getSigner();
 
-// 3. Use your library of choice to request the signature on the typed data
-const signature = '0x...';
+// 3. Create Ethereum signer based on ethers signer
+const signer = Paradex.Signer.ethersSignerAdapter(ethersSigner);
 
-// 4. Derive the account based on the signature
-const account = ParadexAccount.fromEthSignature(config, signature);
-// => { address: "0x..." }
+// 4. Initialize the account with config and Ethereum signer
+const account = await Paradex.Account.fromEthSigner({ config, signer });
+
+console.log(`Account address: ${account.address}`);
+// => Account address: 0x...
 ```
+
+## Notes on browser usage
+
+To use the Paradex SDK in the browser you will need to polyfill `Buffer` from node and define `process.env.NODE_DEBUG` to satisfy `@starkware-industries/starkware-crypto-utils`.
+
+## Get in touch
+
+Have a feature to request or a bug to report?
+
+Drop us a message on [Discord].
+
+[Discord]: https://discord.gg/paradex
+[get in touch]: #get-in-touch
