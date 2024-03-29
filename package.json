@@ -1,0 +1,39 @@
+{
+  "name": "@paradex/sdk",
+  "version": "0.1.1",
+  "description": "JavaScript SDK for Paradex",
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepare": "husky && yarn build",
+    "build": "yarn tsc",
+    "lint": "prettier --check .",
+    "format": "prettier --write ."
+  },
+  "lint-staged": {
+    "**/*": "prettier --write --ignore-unknown"
+  },
+  "license": "MIT",
+  "private": false,
+  "keywords": [
+    "paradex"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tradeparadex/paradex.js.git"
+  },
+  "dependencies": {
+    "@starkware-industries/starkware-crypto-utils": "^0.2.1",
+    "starknet": "^6.6.6"
+  },
+  "devDependencies": {
+    "@types/elliptic": "^6.4.18",
+    "ethers": "^6.11.1",
+    "husky": "^9.0.11",
+    "lint-staged": "^15.2.2",
+    "prettier": "3.2.5",
+    "typescript": "^5.4.3"
+  }
+}
