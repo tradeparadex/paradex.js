@@ -3,11 +3,11 @@
 ## Install
 
 ```sh
-npm install --save @tradeparadex/paradex
+npm install --save @paradex/sdk
 ```
 
 ```sh
-yarn add @tradeparadex/paradex
+yarn add @paradex/sdk
 ```
 
 ## Use cases
@@ -18,7 +18,7 @@ This example uses `ethers` as a dependency to provide an Ethereum signer. If you
 
 ```ts
 import { ethers } from 'ethers';
-import * as Paradex from '@tradeparadex/paradex';
+import * as Paradex from '@paradex/sdk';
 
 // 1. Fetch Paradex config for the relevant environment
 // Supported environments:
@@ -52,3 +52,7 @@ Drop us a message on [Discord].
 
 [Discord]: https://discord.gg/paradex
 [get in touch]: #get-in-touch
+
+## Warning
+
+⚠️ `@paradex/sdk` is experimental and APIs are subject to change
