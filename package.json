@@ -1,5 +1,5 @@
 {
-  "name": "@tradeparadex/paradex",
+  "name": "@paradex/sdk",
   "version": "0.1.0",
   "description": "JavaScript SDK for Paradex",
   "main": "dist/index.js",
