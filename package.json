@@ -7,8 +7,8 @@
     "dist"
   ],
   "scripts": {
-    "prepare": "husky && yarn build",
-    "build": "yarn tsc",
+    "prepare": "husky && tsc",
+    "build": "tsc",
     "lint": "prettier --check . && eslint .",
     "format": "prettier --write ."
   },
