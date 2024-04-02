@@ -1,11 +1,12 @@
 import type { ethers } from 'ethers';
 
-interface TypedData {
+export interface TypedData {
   readonly domain: {
     readonly name: string;
     readonly version: string;
     readonly chainId: string;
   };
+  readonly primaryType: string;
   readonly types: Record<
     string,
     Array<{
@@ -17,7 +18,7 @@ interface TypedData {
 }
 
 export interface EthereumSigner {
-  signTypedData(typedData: TypedData): Promise<string>;
+  readonly signTypedData: (typedData: TypedData) => Promise<string>;
 }
 
 export function ethersSignerAdapter(
@@ -25,7 +26,7 @@ export function ethersSignerAdapter(
 ): EthereumSigner {
   return {
     async signTypedData(typedData) {
-      return ethersSigner.signTypedData(
+      return await ethersSigner.signTypedData(
         typedData.domain,
         typedData.types,
         typedData.message,

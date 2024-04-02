@@ -2,7 +2,11 @@ import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { CallData, hash } from 'starknet';
 
 import type { ParadexConfig } from './config';
-import type { EthereumSigner } from './ethereum-signer';
+import type { EthereumSigner, TypedData } from './ethereum-signer';
+
+interface Account {
+  readonly address: string;
+}
 
 interface FromEthSignerParams {
   readonly config: ParadexConfig;
@@ -13,7 +17,10 @@ interface FromEthSignerParams {
  * Generates a Paradex account from an Ethereum wallet.
  * @returns The generated Paradex account.
  */
-export async function fromEthSigner({ config, signer }: FromEthSignerParams) {
+export async function fromEthSigner({
+  config,
+  signer,
+}: FromEthSignerParams): Promise<Account> {
   const starkKeyTypedData = buildStarkKeyTypedData(config.l1ChainId);
   const signature = await signer.signTypedData(starkKeyTypedData);
   const privateKey = keyDerivation.getPrivateKeyFromEthSignature(signature);
@@ -31,7 +38,7 @@ export async function fromEthSigner({ config, signer }: FromEthSignerParams) {
  * wallet in order to generate a Paradex account.
  * @returns The typed data object.
  */
-function buildStarkKeyTypedData(l1ChainId: string) {
+function buildStarkKeyTypedData(l1ChainId: string): TypedData {
   return {
     domain: {
       name: 'Paradex',
@@ -64,7 +71,7 @@ function generateAccountAddress({
   accountClassHash,
   accountProxyClassHash,
   publicKey,
-}: GenerateAccountAddressParams) {
+}: GenerateAccountAddressParams): string {
   const callData = CallData.compile({
     implementation: accountClassHash,
     selector: hash.getSelectorFromName('initialize'),

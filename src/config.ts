@@ -16,7 +16,7 @@ export interface RawParadexConfig {
   readonly paraclear_decimals: number;
   readonly paraclear_account_proxy_hash: string;
   readonly paraclear_account_hash: string;
-  readonly bridged_tokens: ReadonlyArray<RawBridgedTokenConfig>;
+  readonly bridged_tokens: readonly RawBridgedTokenConfig[];
   readonly l1_core_contract_address: `0x${string}`;
   readonly l1_operator_address: `0x${string}`;
   readonly l1_chain_id: string;
@@ -65,6 +65,6 @@ function assertParadexEnvironment(
   }
 }
 
-function getParadexApiUrl(environment: ParadexEnvironment) {
+function getParadexApiUrl(environment: ParadexEnvironment): string {
   return `https://api.${environment}.paradex.trade/v1`;
 }
