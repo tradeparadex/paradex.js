@@ -2,6 +2,13 @@
   "singleQuote": true,
   "trailingComma": "all",
   "plugins": ["@ianvs/prettier-plugin-sort-imports"],
-  "importOrder": ["<BUILT_IN_MODULES>", "<THIRD_PARTY_MODULES>", "", "^[.]"],
+  "importOrder": [
+    "<BUILT_IN_MODULES>",
+    "<THIRD_PARTY_MODULES>",
+    "",
+    "^\\.\\./",
+    "",
+    "^\\./"
+  ],
   "importOrderTypeScriptVersion": "5.3.3"
 }
