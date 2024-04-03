@@ -1,8 +1,8 @@
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { CallData, hash } from 'starknet';
 
-import type { ParadexConfig } from './config';
-import type { EthereumSigner, TypedData } from './ethereum-signer';
+import type { ParadexConfig } from './config.js';
+import type { EthereumSigner, TypedData } from './ethereum-signer.js';
 
 interface Account {
   readonly address: string;

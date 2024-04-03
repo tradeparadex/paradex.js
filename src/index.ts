@@ -1,6 +1,6 @@
-import * as _Account from './account';
-import * as _Config from './config';
-import * as _Signer from './ethereum-signer';
+import * as _Account from './account.js';
+import * as _Config from './config.js';
+import * as _Signer from './ethereum-signer.js';
 
 export const Config = { fetchConfig: _Config.fetchConfig };
 
