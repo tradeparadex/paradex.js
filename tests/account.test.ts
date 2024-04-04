@@ -9,19 +9,19 @@ describe('create account from eth signer', () => {
   test('correct account address is generated', async () => {
     const testCases = [
       {
-        seed: 'candy maple cake sugar pudding cream honey rich smooth crumble sweet treat',
+        seed: 'test test test test test test test test test test test ball',
         address:
-          '0x707886cbe8b442873740452716b2c38a217bb31f3637d6d66ae8f3f49f8510b',
+          '0x72c394aaa3fae59ad7749c856dc18e2a289e83885b80c0da7731290a9163e17',
       },
       {
-        seed: 'guilt stove cube spoil grass buzz rib work inflict spatial satoshi vicious',
+        seed: 'test test test test test test test test test test test junk',
         address:
-          '0x67b3d10d2ae737d60b3b273a42f7fee5bff9e32f4716d2767f529817eb9005e',
+          '0x37ff1c9d89a50b3dd3a4f90e020ea80251b09ba28049efbe4f7d3fec2995c4a',
       },
       {
-        seed: 'cabbage judge food egg dream typical broccoli wool expand dragon gasp trophy',
+        seed: 'test test test test test test test test test test test waste',
         address:
-          '0x5b6e346f3cf1351b30271a4d7c4c1e91d198b878cf539b4f16d76d0db815a3c',
+          '0x18610fa9cdb1dd19cc224f137754dc98fc4a2af9bb3a20dc6a15baa1fc1a1f8',
       },
     ];
 
