@@ -28,7 +28,7 @@
 
     // Language and environment
     "skipLibCheck": true,
-    "noErrorTruncation": true
+    "noErrorTruncation": true,
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
 }
