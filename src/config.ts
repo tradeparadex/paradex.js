@@ -1,31 +1,50 @@
+import type { Hex } from './types.js';
+
 interface RawBridgedTokenConfig {
   readonly name: string;
   readonly symbol: string;
   readonly decimals: number;
-  readonly l1_token_address: `0x${string}`;
-  readonly l1_bridge_address: `0x${string}`;
-  readonly l2_token_address: string;
-  readonly l2_bridge_address: string;
+  readonly l1_token_address: Hex;
+  readonly l1_bridge_address: Hex;
+  readonly l2_token_address: Hex;
+  readonly l2_bridge_address: Hex;
 }
 
 export interface RawParadexConfig {
   readonly starknet_gateway_url: string;
+  readonly starknet_fullnode_rpc_url: string;
+
   readonly starknet_chain_id: string;
   readonly block_explorer_url: string;
-  readonly paraclear_address: string;
+  readonly paraclear_address: Hex;
   readonly paraclear_decimals: number;
-  readonly paraclear_account_proxy_hash: string;
-  readonly paraclear_account_hash: string;
+  readonly paraclear_account_proxy_hash: Hex;
+  readonly paraclear_account_hash: Hex;
   readonly bridged_tokens: readonly RawBridgedTokenConfig[];
-  readonly l1_core_contract_address: `0x${string}`;
-  readonly l1_operator_address: `0x${string}`;
+  readonly l1_core_contract_address: Hex;
+  readonly l1_operator_address: Hex;
   readonly l1_chain_id: string;
 }
 
+interface BridgedTokenConfig {
+  readonly name: string;
+  readonly symbol: string;
+  readonly decimals: number;
+  readonly l1TokenAddress: Hex;
+  readonly l1BridgeAddress: Hex;
+  readonly l2TokenAddress: Hex;
+  readonly l2BridgeAddress: Hex;
+}
+
 export interface ParadexConfig {
+  readonly starknetFullNodeRpcUrl: string;
+  readonly starknetChainId: string;
   readonly l1ChainId: string;
-  readonly paraclearAccountHash: string;
-  readonly paraclearAccountProxyHash: string;
+  readonly paraclearAccountHash: Hex;
+  readonly paraclearAccountProxyHash: Hex;
+  readonly paraclearAddress: Hex;
+  readonly paraclearDecimals: number;
+  readonly bridgedTokens: Record<string, BridgedTokenConfig>;
 }
 
 type ParadexEnvironment = 'testnet' | 'prod';
@@ -50,11 +69,7 @@ export async function fetchConfig(
   const jsonResp = await resp.json();
   const config = jsonResp as RawParadexConfig;
 
-  return {
-    l1ChainId: config.l1_chain_id,
-    paraclearAccountHash: config.paraclear_account_hash,
-    paraclearAccountProxyHash: config.paraclear_account_proxy_hash,
-  };
+  return buildConfig(config);
 }
 
 function assertParadexEnvironment(
@@ -67,4 +82,32 @@ function assertParadexEnvironment(
 
 function getParadexApiUrl(environment: ParadexEnvironment): string {
   return `https://api.${environment}.paradex.trade/v1`;
+}
+
+export function buildConfig(rawConfig: RawParadexConfig): ParadexConfig {
+  const bridgedTokens = Object.fromEntries(
+    rawConfig.bridged_tokens.map((token) => [
+      token.symbol,
+      {
+        name: token.name,
+        symbol: token.symbol,
+        decimals: token.decimals,
+        l1TokenAddress: token.l1_token_address,
+        l1BridgeAddress: token.l1_bridge_address,
+        l2TokenAddress: token.l2_token_address,
+        l2BridgeAddress: token.l2_bridge_address,
+      },
+    ]),
+  );
+
+  return {
+    starknetFullNodeRpcUrl: rawConfig.starknet_fullnode_rpc_url,
+    starknetChainId: rawConfig.starknet_chain_id,
+    l1ChainId: rawConfig.l1_chain_id,
+    paraclearAccountHash: rawConfig.paraclear_account_hash,
+    paraclearAccountProxyHash: rawConfig.paraclear_account_proxy_hash,
+    paraclearAddress: rawConfig.paraclear_address,
+    paraclearDecimals: rawConfig.paraclear_decimals,
+    bridgedTokens,
+  };
 }

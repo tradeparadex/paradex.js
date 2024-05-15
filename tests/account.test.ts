@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import * as Account from '../src/account';
 import { ethersSignerAdapter } from '../src/ethereum-signer';
 
-import PARADEX_CONFIG from './fixtures/paradex-config.json';
+import { configFactory } from './factories/paradex-config';
 
 describe('create account from eth signer', () => {
   test('correct account address is generated', async () => {
@@ -30,7 +30,7 @@ describe('create account from eth signer', () => {
       const signer = ethersSignerAdapter(wallet);
 
       const account = await Account.fromEthSigner({
-        config: PARADEX_CONFIG,
+        config: configFactory(),
         signer,
       });
 
