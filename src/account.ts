@@ -3,9 +3,10 @@ import { CallData, hash } from 'starknet';
 
 import type { ParadexConfig } from './config.js';
 import type { EthereumSigner, TypedData } from './ethereum-signer.js';
+import type { Hex } from './types.js';
 
-interface Account {
-  readonly address: string;
+export interface Account {
+  readonly address: Hex;
 }
 
 interface FromEthSignerParams {
@@ -57,11 +58,11 @@ function buildStarkKeyTypedData(l1ChainId: string): TypedData {
 
 interface GenerateAccountAddressParams {
   /** The hash of the account contract in hex format */
-  readonly accountClassHash: string;
+  readonly accountClassHash: Hex;
   /** The hash of the account proxy contract in hex format */
-  readonly accountProxyClassHash: string;
+  readonly accountProxyClassHash: Hex;
   /** The public key of the account in hex format */
-  readonly publicKey: string;
+  readonly publicKey: Hex;
 }
 
 /**
@@ -71,7 +72,7 @@ function generateAccountAddress({
   accountClassHash,
   accountProxyClassHash,
   publicKey,
-}: GenerateAccountAddressParams): string {
+}: GenerateAccountAddressParams): Hex {
   const callData = CallData.compile({
     implementation: accountClassHash,
     selector: hash.getSelectorFromName('initialize'),
@@ -88,5 +89,5 @@ function generateAccountAddress({
     0,
   );
 
-  return address;
+  return address as Hex;
 }
