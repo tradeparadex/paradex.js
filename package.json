@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@starkware-industries/starkware-crypto-utils": "^0.2.1",
+    "bignumber.js": "^9.1.2",
     "starknet": "^6.6.6"
   },
   "devDependencies": {
