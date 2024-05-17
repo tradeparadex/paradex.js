@@ -1,15 +1,14 @@
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
-import { CallData, hash } from 'starknet';
+import * as Starknet from 'starknet';
 
 import type { ParadexConfig } from './config.js';
 import type { EthereumSigner, TypedData } from './ethereum-signer.js';
 import type { Hex } from './types.js';
 
-export interface Account {
-  readonly address: Hex;
-}
+export interface Account extends Starknet.Account {}
 
 interface FromEthSignerParams {
+  readonly provider: Starknet.ProviderOptions | Starknet.ProviderInterface;
   readonly config: ParadexConfig;
   readonly signer: EthereumSigner;
 }
@@ -19,6 +18,7 @@ interface FromEthSignerParams {
  * @returns The generated Paradex account.
  */
 export async function fromEthSigner({
+  provider,
   config,
   signer,
 }: FromEthSignerParams): Promise<Account> {
@@ -31,7 +31,7 @@ export async function fromEthSigner({
     accountClassHash: config.paraclearAccountHash,
     accountProxyClassHash: config.paraclearAccountProxyHash,
   });
-  return { address };
+  return new Starknet.Account(provider, address, `0x${privateKey}`);
 }
 
 /**
@@ -73,16 +73,16 @@ function generateAccountAddress({
   accountProxyClassHash,
   publicKey,
 }: GenerateAccountAddressParams): Hex {
-  const callData = CallData.compile({
+  const callData = Starknet.CallData.compile({
     implementation: accountClassHash,
-    selector: hash.getSelectorFromName('initialize'),
-    calldata: CallData.compile({
+    selector: Starknet.hash.getSelectorFromName('initialize'),
+    calldata: Starknet.CallData.compile({
       signer: publicKey,
       guardian: '0',
     }),
   });
 
-  const address = hash.calculateContractAddressFromHash(
+  const address = Starknet.hash.calculateContractAddressFromHash(
     publicKey,
     accountProxyClassHash,
     callData,

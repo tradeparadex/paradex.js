@@ -4,6 +4,7 @@ import * as Starknet from 'starknet';
 import type { Account } from './account.js';
 import type { ParadexConfig } from './config.js';
 import type { ParaclearProvider } from './paraclear-provider.js';
+import type { Hex } from './types.js';
 
 interface GetBalanceParams {
   readonly config: ParadexConfig;
@@ -173,20 +174,97 @@ export async function getReceivableAmount(
     BigNumber(1).minus(socializedLossFactor),
   );
 
-  const receivableAmountChain = toChainSize(
+  const receivableAmountChainBn = toChainSize(
     receivableAmount.toString(),
     params.config.paraclearDecimals,
   );
 
   return {
     receivableAmount: receivableAmount.toString(),
-    receivableAmountChain: receivableAmountChain.toString(),
+    receivableAmountChain: receivableAmountChainBn.toString(),
     socializedLossFactor,
   };
 }
 
-function fromChainSize(size: BigNumber, decimals: number): string {
-  return new BigNumber(size).div(10 ** decimals).toString();
+interface WithdrawParams {
+  readonly config: ParadexConfig;
+  /**
+   * Account to withdraw from.
+   */
+  readonly account: Account;
+  /**
+   * Token symbol.
+   * @example 'USDC'
+   */
+  readonly token: string;
+  /**
+   * Amount to withdraw from Paradex.
+   * Note that this amount can be less than the amount that will be
+   * received if socialized loss is active. Use {@link getReceivableAmount}
+   * to calculate the amount that will be received.
+   * Decimal string.
+   * @example '100.45'
+   * @example '45.2'
+   */
+  readonly amount: string;
+  /**
+   * Call to transfer funds to the bridge. This transaction will be called
+   * as the second transaction of the withdrawal transactions batch.
+   *
+   * The bridge call must be made with the receivable amount calculated
+   * using {@link getReceivableAmount}.
+   */
+  readonly bridgeCall: Starknet.Call;
+}
+
+interface TransactionResult {
+  readonly hash: Hex;
+}
+
+/**
+ * Withdraw funds from Paraclear for the given account.
+ *
+ * Automatically make a batch transaction with `initiate_withdrawal`
+ * call to the Paraclear contract along with the transaction passed
+ * as `params.bridgeCall` The batch call is atomic. If either of
+ * the transactions fail, the entire batch gets reverted.
+ *
+ * If socialized loss is active, the bridge call must be constructed
+ * with an amount that accounts for the loss. To calculate that amount,
+ * use {@link getReceivableAmount}. Failing to do so can result in a
+ * failed withdrawal.
+ */
+export async function withdraw(
+  params: WithdrawParams,
+): Promise<TransactionResult> {
+  const token = params.config.bridgedTokens[params.token];
+
+  if (token == null) {
+    throw new Error(`Token ${params.token} is not supported`);
+  }
+
+  const chainAmountBn = toChainSize(
+    params.amount,
+    params.config.paraclearDecimals,
+  );
+
+  const result = await params.account.execute([
+    {
+      contractAddress: params.config.paraclearAddress,
+      entrypoint: 'initiate_withdrawal',
+      calldata: Starknet.CallData.compile([
+        token.l2TokenAddress,
+        chainAmountBn.toString(),
+      ]),
+    },
+    params.bridgeCall,
+  ]);
+
+  return { hash: result.transaction_hash as Hex };
+}
+
+function fromChainSize(size: BigNumber, decimals: number): BigNumber {
+  return new BigNumber(size).div(10 ** decimals);
 }
 
 function toChainSize(size: string, decimals: number): BigNumber {
