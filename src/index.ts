@@ -16,4 +16,6 @@ export const ParaclearProvider = {
 
 export const Paraclear = {
   getTokenBalance: _Paraclear.getTokenBalance,
+  getSocializedLossFactor: _Paraclear.getSocializedLossFactor,
+  getReceivableAmount: _Paraclear.getReceivableAmount,
 };
