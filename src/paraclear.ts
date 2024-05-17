@@ -40,7 +40,7 @@ export async function getTokenBalance(
     throw new Error(`Token ${params.token} is not supported`);
   }
 
-  const [result] = await params.provider.callContract(
+  const { result } = await params.provider.callContract(
     {
       contractAddress: params.config.paraclearAddress,
       entrypoint: 'getTokenAssetBalance',
@@ -52,16 +52,18 @@ export async function getTokenBalance(
     'latest',
   );
 
-  if (result == null) {
+  const value = result?.[0];
+
+  if (value == null) {
     throw new Error('Failed to get token balance');
   }
 
-  const resultBn = new BigNumber(result);
-  if (resultBn.isNaN()) {
+  const valueBn = new BigNumber(value);
+  if (valueBn.isNaN()) {
     throw new Error('Failed to parse token balance');
   }
 
-  const chainSizeBn = resultBn;
+  const chainSizeBn = valueBn;
 
   const sizeBn = fromChainSize(chainSizeBn, params.config.paraclearDecimals);
 
@@ -87,21 +89,23 @@ interface GetSocializedLossFactorResult {
 export async function getSocializedLossFactor(
   params: GetSocializedLossFactorParams,
 ): Promise<GetSocializedLossFactorResult> {
-  const [result] = await params.provider.callContract({
+  const { result } = await params.provider.callContract({
     contractAddress: params.config.paraclearAddress,
     entrypoint: 'getSocializedLossFactor',
   });
 
-  if (result == null) {
+  const value = result?.[0];
+
+  if (value == null) {
     throw new Error('Failed to get socialized loss factor');
   }
 
-  const resultBn = new BigNumber(result);
-  if (resultBn.isNaN()) {
+  const valueBn = new BigNumber(value);
+  if (valueBn.isNaN()) {
     throw new Error('Failed to parse socialized loss factor');
   }
 
-  const chainFactorBn = resultBn;
+  const chainFactorBn = valueBn;
 
   const factorBn = fromChainSize(
     chainFactorBn,
