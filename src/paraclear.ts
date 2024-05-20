@@ -120,6 +120,11 @@ interface GetReceivableAmountParams {
   readonly config: ParadexConfig;
   readonly provider: Pick<ParaclearProvider, 'callContract'>;
   /**
+   * Token symbol.
+   * @example 'USDC'
+   */
+  readonly token: string;
+  /**
    * Amount of to withdraw from Paradex, as a decimal string.
    * The receivable amount will be calculated based on this amount and
    * can be less than the requested amount if socialized loss is active.
@@ -165,6 +170,12 @@ export async function getReceivableAmount(
     throw new Error('Invalid amount');
   }
 
+  const token = params.config.bridgedTokens[params.token];
+
+  if (token == null) {
+    throw new Error(`Token ${params.token} is not supported`);
+  }
+
   const { socializedLossFactor } = await getSocializedLossFactor({
     config: params.config,
     provider: params.provider,
@@ -176,7 +187,7 @@ export async function getReceivableAmount(
 
   const receivableAmountChainBn = toChainSize(
     receivableAmount.toString(),
-    params.config.paraclearDecimals,
+    token.decimals,
   );
 
   return {

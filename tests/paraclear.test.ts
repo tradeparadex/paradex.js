@@ -130,20 +130,33 @@ describe('getReceivableAmount', () => {
     const result = await getReceivableAmount({
       config: configFactory(),
       provider: mockProvider,
+      token: 'USDC',
       amount: '100',
     });
 
     expect(result).toStrictEqual({
       receivableAmount: '99',
-      receivableAmountChain: '9900000000',
+      receivableAmountChain: '99000000',
       socializedLossFactor,
     });
+  });
+
+  test('should throw an error if token is not supported', async () => {
+    const result = getReceivableAmount({
+      config: configFactory(),
+      provider: { callContract: jest.fn() },
+      token: 'ASDF',
+      amount: '100',
+    });
+
+    await expect(result).rejects.toThrow('Token ASDF is not supported');
   });
 
   test('should throw an error for invalid amount', async () => {
     const result = getReceivableAmount({
       config: configFactory(),
       provider: { callContract: jest.fn() },
+      token: 'USDC',
       amount: 'not a number',
     });
 
@@ -159,6 +172,7 @@ describe('getReceivableAmount', () => {
     const result = getReceivableAmount({
       config: configFactory(),
       provider: mockProvider,
+      token: 'USDC',
       amount: '100',
     });
 
@@ -174,6 +188,7 @@ describe('getReceivableAmount', () => {
     const result = getReceivableAmount({
       config: configFactory(),
       provider: mockProvider,
+      token: 'USDC',
       amount: '100',
     });
 

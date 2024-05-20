@@ -53,6 +53,7 @@ console.log(getBalanceResult); // { size: '100.45' }
 const receivableAmountResult = await Paradex.Paraclear.getReceivableAmount({
   provider: paraclearProvider, // account can be passed as the provider
   config,
+  token: 'USDC',
   amount: '50.4',
 });
 
