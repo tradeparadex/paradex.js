@@ -6,6 +6,8 @@ import type { ParadexConfig } from './config.js';
 import type { ParaclearProvider } from './paraclear-provider.js';
 import type { Hex } from './types.js';
 
+const MAX_FEE = BigNumber('5e17'); // 5e17 WEI = 0.5 ETH
+
 interface GetBalanceParams {
   readonly config: ParadexConfig;
   readonly provider: Pick<ParaclearProvider, 'callContract'>;
@@ -259,17 +261,21 @@ export async function withdraw(
     params.config.paraclearDecimals,
   );
 
-  const result = await params.account.execute([
-    {
-      contractAddress: params.config.paraclearAddress,
-      entrypoint: 'initiate_withdrawal',
-      calldata: Starknet.CallData.compile([
-        token.l2TokenAddress,
-        chainAmountBn.toString(),
-      ]),
-    },
-    params.bridgeCall,
-  ]);
+  // ensure unique txn hash on subsequent calls via `intNoise`
+  const maxFee = MAX_FEE.plus(intNoise(10_000));
+
+  const result = await params.account.execute(
+    [
+      {
+        contractAddress: params.config.paraclearAddress,
+        entrypoint: 'withdraw',
+        calldata: [token.l2TokenAddress, chainAmountBn.toString()],
+      },
+      params.bridgeCall,
+    ],
+    undefined,
+    { maxFee: maxFee.toString() },
+  );
 
   return { hash: result.transaction_hash as Hex };
 }
@@ -279,5 +285,15 @@ function fromChainSize(size: BigNumber, decimals: number): BigNumber {
 }
 
 function toChainSize(size: string, decimals: number): BigNumber {
-  return new BigNumber(size).times(10 ** decimals);
+  return new BigNumber(size)
+    .times(10 ** decimals)
+    .integerValue(BigNumber.ROUND_FLOOR);
+}
+
+/**
+ * Generates a pseudorandom integer between 0 and `max`.
+ * @param max Maximum value for the noise.
+ */
+function intNoise(max: number): number {
+  return Math.round(Math.random() * max);
 }
