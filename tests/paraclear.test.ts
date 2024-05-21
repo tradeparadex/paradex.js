@@ -1,5 +1,4 @@
 import { ethers } from 'ethers';
-import * as Starknet from 'starknet';
 
 import { fromEthSigner } from '../src/account';
 import { ethersSignerAdapter } from '../src/ethereum-signer';
@@ -213,14 +212,16 @@ describe('withdraw', () => {
       signer,
     });
 
-    jest.spyOn(mockAccount, 'execute').mockResolvedValueOnce({
-      transaction_hash: '0xabcdef123456',
-    });
+    const mockExecute = jest
+      .spyOn(mockAccount, 'execute')
+      .mockResolvedValueOnce({
+        transaction_hash: '0xabcdef123456',
+      });
 
     const bridgeCall = {
       contractAddress: '0xB',
       entrypoint: 'deposit',
-      calldata: Starknet.CallData.compile(['0x12', '100000000']),
+      calldata: ['0x12', '100000000'],
     };
 
     const result = await withdraw({
@@ -235,16 +236,14 @@ describe('withdraw', () => {
       throw new Error('Token USDC is not defined');
     }
 
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    expect(mockAccount.execute).toHaveBeenCalledWith([
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const mockExecuteArg1 = mockExecute.mock.calls[0]?.[0];
+    expect(mockExecuteArg1).toStrictEqual([
       {
         contractAddress:
           '0x286003f7c7bfc3f94e8f0af48b48302e7aee2fb13c23b141479ba00832ef2c6',
-        entrypoint: 'initiate_withdrawal',
-        calldata: Starknet.CallData.compile([
-          config.bridgedTokens.USDC.l2TokenAddress,
-          '10000000000',
-        ]),
+        entrypoint: 'withdraw',
+        calldata: [config.bridgedTokens.USDC.l2TokenAddress, '10000000000'],
       },
       bridgeCall,
     ]);
