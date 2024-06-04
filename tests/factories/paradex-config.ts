@@ -3,7 +3,7 @@ import type { ParadexConfig } from '../../src/config';
 export function configFactory(): ParadexConfig {
   return {
     starknetFullNodeRpcUrl: 'https://example-fullnode-rpc-url.com',
-    starknetChainId: '42',
+    starknetChainId: '0x505249564154455f534e5f504f54435f5345504f4c4941',
     l1ChainId: '11155111',
     paraclearAccountHash:
       '0x41cb0280ebadaa75f996d8d92c6f265f6d040bb3ba442e5f86a554f1765244e',

@@ -1,3 +1,5 @@
+import * as Starknet from 'starknet';
+
 import type { Hex } from './types.js';
 
 interface RawBridgedTokenConfig {
@@ -102,7 +104,9 @@ export function buildConfig(rawConfig: RawParadexConfig): ParadexConfig {
 
   return {
     starknetFullNodeRpcUrl: rawConfig.starknet_fullnode_rpc_url,
-    starknetChainId: rawConfig.starknet_chain_id,
+    starknetChainId: Starknet.shortString.encodeShortString(
+      rawConfig.starknet_chain_id,
+    ),
     l1ChainId: rawConfig.l1_chain_id,
     paraclearAccountHash: rawConfig.paraclear_account_hash,
     paraclearAccountProxyHash: rawConfig.paraclear_account_proxy_hash,
