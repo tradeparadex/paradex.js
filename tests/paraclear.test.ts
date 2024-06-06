@@ -220,7 +220,7 @@ describe('withdraw', () => {
 
     const bridgeCall = {
       contractAddress: '0xB',
-      entrypoint: 'deposit',
+      entrypoint: 'entrypoint',
       calldata: ['0x12', '100000000'],
     };
 
@@ -246,6 +246,66 @@ describe('withdraw', () => {
         calldata: [config.bridgedTokens.USDC.l2TokenAddress, '10000000000'],
       },
       bridgeCall,
+    ]);
+
+    expect(result).toEqual({ hash: '0xabcdef123456' });
+  });
+
+  test('should support multiple calls in bridgeCall', async () => {
+    const wallet = ethers.Wallet.fromPhrase(
+      'test test test test test test test test test test test waste',
+    );
+    const signer = ethersSignerAdapter(wallet);
+
+    const config = configFactory();
+
+    const mockAccount = await fromEthSigner({
+      provider: createMockProvider(),
+      config,
+      signer,
+    });
+
+    const mockExecute = jest
+      .spyOn(mockAccount, 'execute')
+      .mockResolvedValueOnce({
+        transaction_hash: '0xabcdef123456',
+      });
+
+    const bridgeCall = [
+      {
+        contractAddress: '0xB',
+        entrypoint: 'entrypoint1',
+        calldata: ['0x12', '100000000'],
+      },
+      {
+        contractAddress: '0xC',
+        entrypoint: 'entrypoint2',
+        calldata: ['0x13', '100000000'],
+      },
+    ];
+
+    const result = await withdraw({
+      config,
+      account: mockAccount,
+      token: 'USDC',
+      amount: '100',
+      bridgeCall,
+    });
+
+    if (config.bridgedTokens.USDC == null) {
+      throw new Error('Token USDC is not defined');
+    }
+
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    const mockExecuteArg1 = mockExecute.mock.calls[0]?.[0];
+    expect(mockExecuteArg1).toStrictEqual([
+      {
+        contractAddress:
+          '0x286003f7c7bfc3f94e8f0af48b48302e7aee2fb13c23b141479ba00832ef2c6',
+        entrypoint: 'withdraw',
+        calldata: [config.bridgedTokens.USDC.l2TokenAddress, '10000000000'],
+      },
+      ...bridgeCall,
     ]);
 
     expect(result).toEqual({ hash: '0xabcdef123456' });

@@ -227,7 +227,7 @@ interface WithdrawParams {
    * The bridge call must be made with the receivable amount calculated
    * using {@link getReceivableAmount}.
    */
-  readonly bridgeCall: Starknet.Call;
+  readonly bridgeCall: Starknet.Call | readonly Starknet.Call[];
 }
 
 interface TransactionResult {
@@ -271,7 +271,9 @@ export async function withdraw(
         entrypoint: 'withdraw',
         calldata: [token.l2TokenAddress, chainAmountBn.toString()],
       },
-      params.bridgeCall,
+      ...(Array.isArray(params.bridgeCall)
+        ? params.bridgeCall
+        : [params.bridgeCall]),
     ],
     undefined,
     { maxFee: maxFee.toString() },
