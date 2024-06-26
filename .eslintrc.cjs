@@ -7,6 +7,9 @@ module.exports = {
       },
       files: ['src/**/*.ts', 'tests/**/*.ts'],
       extends: ['love', 'prettier'],
+      rules: {
+        '@typescript-eslint/no-unused-vars': 'off',
+      },
     },
   ],
 };

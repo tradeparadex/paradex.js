@@ -42,6 +42,8 @@ export interface ParadexConfig {
   readonly starknetFullNodeRpcUrl: string;
   readonly starknetChainId: string;
   readonly l1ChainId: string;
+  /** Derived from `l1ChainId` */
+  readonly l2ChainId: string;
   readonly paraclearAccountHash: Hex;
   readonly paraclearAccountProxyHash: Hex;
   readonly paraclearAddress: Hex;
@@ -108,10 +110,21 @@ export function buildConfig(rawConfig: RawParadexConfig): ParadexConfig {
       rawConfig.starknet_chain_id,
     ),
     l1ChainId: rawConfig.l1_chain_id,
+    l2ChainId: getL2ChainId(rawConfig),
     paraclearAccountHash: rawConfig.paraclear_account_hash,
     paraclearAccountProxyHash: rawConfig.paraclear_account_proxy_hash,
     paraclearAddress: rawConfig.paraclear_address,
     paraclearDecimals: rawConfig.paraclear_decimals,
     bridgedTokens,
   };
+}
+
+function getL2ChainId(rawConfig: RawParadexConfig): string {
+  switch (rawConfig.l1_chain_id) {
+    case '1':
+      return 'SN_MAIN';
+    case '11155111':
+    default:
+      return 'SN_SEPOLIA';
+  }
 }

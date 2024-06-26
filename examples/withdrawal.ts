@@ -32,7 +32,7 @@ const ethersSigner = await ethersProvider.getSigner();
 const signer = Paradex.Signer.ethersSignerAdapter(ethersSigner);
 
 //  3.3. Initialize the account with config and Ethereum signer
-const account = await Paradex.Account.fromEthSigner({
+const paradexAccount = await Paradex.Account.fromEthSigner({
   provider: paraclearProvider,
   config,
   signer,
@@ -42,7 +42,7 @@ const account = await Paradex.Account.fromEthSigner({
 const getBalanceResult = await Paradex.Paraclear.getTokenBalance({
   provider: paraclearProvider, // account can be passed as the provider
   config,
-  account,
+  account: paradexAccount,
   token: 'USDC',
 });
 console.log(getBalanceResult); // { size: '100.45' }
@@ -74,7 +74,7 @@ if (Number(receivableAmountResult.socializedLossFactor) !== 0) {
 //  amount to make the bridge call.
 const withdrawResult = await Paradex.Paraclear.withdraw({
   config,
-  account,
+  account: paradexAccount,
   token: 'USDC',
   amount: '50.4',
   bridgeCall: {
