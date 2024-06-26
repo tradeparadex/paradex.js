@@ -34,3 +34,26 @@ export function ethersSignerAdapter(
     },
   };
 }
+/**
+ * Returns the typed data that needs to be signed by an Ethereum
+ * wallet in order to generate a Paradex account.
+ * @returns The typed data object.
+ */
+export function buildEthereumStarkKeyTypedData(
+  ethereumChainId: string,
+): TypedData {
+  return {
+    domain: {
+      name: 'Paradex',
+      chainId: ethereumChainId,
+      version: '1',
+    },
+    primaryType: 'Constant',
+    types: {
+      Constant: [{ name: 'action', type: 'string' }],
+    },
+    message: {
+      action: 'STARK Key',
+    },
+  };
+}

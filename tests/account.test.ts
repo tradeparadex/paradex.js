@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import * as Starknet from 'starknet';
 
 import * as Account from '../src/account';
 import { ethersSignerAdapter } from '../src/ethereum-signer';
@@ -37,6 +38,39 @@ describe('create account from eth signer', () => {
       });
 
       expect(account.address).toBe(testCase.address);
+    }
+  });
+});
+
+describe('create account from starknet signer', () => {
+  test('correct account address is generated', async () => {
+    const testCases = [
+      {
+        snPrivateKey:
+          '0x46063cf2e9c3cbf5cc17ad5fdfce6b6959fede7ceb433dc057a3c90f668004b',
+        snAddress:
+          '0x4383e793c2d1bc29be7647794936371dac6955636f22069a033d4392794780a',
+        paradexAddress:
+          '0x7b21ae25ac9b3f3ff47bb541097332f27252567a5e6f0399ff6f2cfdb1a2cb',
+      },
+    ] as const;
+
+    for (const testCase of testCases) {
+      const snProvider = createMockProvider();
+      const snAccount = new Starknet.Account(
+        snProvider,
+        testCase.snAddress,
+        testCase.snPrivateKey,
+      );
+
+      const account = await Account.fromStarknetSigner({
+        provider: createMockProvider(),
+        config: configFactory(),
+        signer: snAccount.signer,
+        signerAddress: snAccount.address,
+      });
+
+      expect(account.address).toBe(testCase.paradexAddress);
     }
   });
 });

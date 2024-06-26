@@ -2,7 +2,8 @@ import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import * as Starknet from 'starknet';
 
 import type { ParadexConfig } from './config.js';
-import type { EthereumSigner, TypedData } from './ethereum-signer.js';
+import * as ethereumSigner from './ethereum-signer.js';
+import * as starknetSigner from './starknet-signer.js';
 import type { Hex } from './types.js';
 
 export interface Account extends Starknet.Account {}
@@ -10,7 +11,7 @@ export interface Account extends Starknet.Account {}
 interface FromEthSignerParams {
   readonly provider: Starknet.ProviderOptions | Starknet.ProviderInterface;
   readonly config: ParadexConfig;
-  readonly signer: EthereumSigner;
+  readonly signer: ethereumSigner.EthereumSigner;
 }
 
 /**
@@ -22,9 +23,11 @@ export async function fromEthSigner({
   config,
   signer,
 }: FromEthSignerParams): Promise<Account> {
-  const starkKeyTypedData = buildStarkKeyTypedData(config.l1ChainId);
-  const signature = await signer.signTypedData(starkKeyTypedData);
-  const privateKey = keyDerivation.getPrivateKeyFromEthSignature(signature);
+  const starkKeyTypedData = ethereumSigner.buildEthereumStarkKeyTypedData(
+    config.l1ChainId,
+  );
+  const seed = await signer.signTypedData(starkKeyTypedData);
+  const privateKey = keyDerivation.getPrivateKeyFromEthSignature(seed);
   const publicKey = keyDerivation.privateToStarkKey(privateKey);
   const address = generateAccountAddress({
     publicKey: `0x${publicKey}`,
@@ -34,26 +37,37 @@ export async function fromEthSigner({
   return new Starknet.Account(provider, address, `0x${privateKey}`);
 }
 
+interface FromStarknetSignerParams {
+  readonly provider: Starknet.ProviderOptions | Starknet.ProviderInterface;
+  readonly config: ParadexConfig;
+  // TODO extract type to starknet-signer
+  readonly signer: Starknet.SignerInterface;
+  readonly signerAddress: string;
+}
+
 /**
- * Returns the typed data that needs to be signed by an Ethereum
- * wallet in order to generate a Paradex account.
- * @returns The typed data object.
+ * Generates a Paradex account from a Starknet signer.
+ * @returns The generated Paradex account.
  */
-function buildStarkKeyTypedData(l1ChainId: string): TypedData {
-  return {
-    domain: {
-      name: 'Paradex',
-      chainId: l1ChainId,
-      version: '1',
-    },
-    primaryType: 'Constant',
-    types: {
-      Constant: [{ name: 'action', type: 'string' }],
-    },
-    message: {
-      action: 'STARK Key',
-    },
-  };
+export async function fromStarknetSigner({
+  provider,
+  config,
+  signer,
+  signerAddress,
+}: FromStarknetSignerParams): Promise<Account> {
+  const starknetChainId = config.l2ChainId;
+  const starkKeyTypedData =
+    starknetSigner.buildStarknetStarkKeyTypedData(starknetChainId);
+  const signature = await signer.signMessage(starkKeyTypedData, signerAddress);
+  const seed = starknetSigner.getSeedFromStarknetSignature(signature);
+  const [privateKey, publicKey] =
+    await starknetSigner.getStarkKeypairFromStarknetSignature(seed);
+  const address = generateAccountAddress({
+    publicKey: `0x${publicKey}`,
+    accountClassHash: config.paraclearAccountHash,
+    accountProxyClassHash: config.paraclearAccountProxyHash,
+  });
+  return new Starknet.Account(provider, address, `0x${privateKey}`);
 }
 
 interface GenerateAccountAddressParams {

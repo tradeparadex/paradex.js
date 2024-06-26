@@ -6,7 +6,10 @@ import * as _Paraclear from './paraclear.js';
 
 export const Config = { fetchConfig: _Config.fetchConfig };
 
-export const Account = { fromEthSigner: _Account.fromEthSigner };
+export const Account = {
+  fromEthSigner: _Account.fromEthSigner,
+  fromStarknetSigner: _Account.fromStarknetSigner,
+};
 
 export const Signer = { ethersSignerAdapter: _Signer.ethersSignerAdapter };
 

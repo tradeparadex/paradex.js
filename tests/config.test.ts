@@ -48,6 +48,7 @@ describe('buildConfig', () => {
         },
       },
       l1ChainId: '11155111',
+      l2ChainId: 'SN_SEPOLIA',
       paraclearAccountHash:
         '0x41cb0280ebadaa75f996d8d92c6f265f6d040bb3ba442e5f86a554f1765244e',
       paraclearAccountProxyHash:

@@ -3169,6 +3169,11 @@ jest-snapshot@^29.7.0:
     pretty-format "^29.7.0"
     semver "^7.5.3"
 
+jest-ts-webcompat-resolver@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/jest-ts-webcompat-resolver/-/jest-ts-webcompat-resolver-1.0.0.tgz#a554eb77446e1a8d2aabb810d6302bffaa00095c"
+  integrity sha512-BFoaU7LeYqZNnTYEr6iMRf87xdCQntNc/Wk8YpzDBcuz+CIZ0JsTtzuMAMnKiEgTRTC1wRWLUo2RlVjVijBcHQ==
+
 jest-util@^29.0.0, jest-util@^29.7.0:
   version "29.7.0"
   resolved "https://registry.yarnpkg.com/jest-util/-/jest-util-29.7.0.tgz#23c2b62bfb22be82b44de98055802ff3710fc0bc"
