@@ -63,11 +63,10 @@ describe('create account from starknet signer', () => {
         testCase.snPrivateKey,
       );
 
-      const account = await Account.fromStarknetSigner({
+      const account = await Account.fromStarknetAccount({
         provider: createMockProvider(),
         config: configFactory(),
-        signer: snAccount.signer,
-        signerAddress: snAccount.address,
+        account: snAccount,
       });
 
       expect(account.address).toBe(testCase.paradexAddress);
