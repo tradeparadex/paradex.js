@@ -37,28 +37,25 @@ export async function fromEthSigner({
   return new Starknet.Account(provider, address, `0x${privateKey}`);
 }
 
-interface FromStarknetSignerParams {
+interface FromStarknetAccountParams {
   readonly provider: Starknet.ProviderOptions | Starknet.ProviderInterface;
   readonly config: ParadexConfig;
-  // TODO extract type to starknet-signer
-  readonly signer: Starknet.SignerInterface;
-  readonly signerAddress: string;
+  readonly account: Starknet.AccountInterface;
 }
 
 /**
  * Generates a Paradex account from a Starknet signer.
  * @returns The generated Paradex account.
  */
-export async function fromStarknetSigner({
+export async function fromStarknetAccount({
   provider,
   config,
-  signer,
-  signerAddress,
-}: FromStarknetSignerParams): Promise<Account> {
+  account,
+}: FromStarknetAccountParams): Promise<Account> {
   const starknetChainId = config.l2ChainId;
   const starkKeyTypedData =
     starknetSigner.buildStarknetStarkKeyTypedData(starknetChainId);
-  const signature = await signer.signMessage(starkKeyTypedData, signerAddress);
+  const signature = await account.signMessage(starkKeyTypedData);
   const seed = starknetSigner.getSeedFromStarknetSignature(signature);
   const [privateKey, publicKey] =
     await starknetSigner.getStarkKeypairFromStarknetSignature(seed);
