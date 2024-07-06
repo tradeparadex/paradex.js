@@ -1,6 +1,13 @@
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
-import type { Signature, SignerInterface, TypedData } from 'starknet';
+import type {
+  AccountInterface,
+  Signature,
+  SignerInterface,
+  TypedData,
+} from 'starknet';
 import * as Starknet from 'starknet';
+
+import { AccountSupport } from './starknet-account-support.js';
 
 export type { SignerInterface as Signer, TypedData, Signature };
 
@@ -49,27 +56,54 @@ export async function getStarkKeypairFromStarknetSignature(
   return [privateKey, publicKey];
 }
 
-/**
- * Extracts the R segment from a Starknet signature for key derivation.
- *  * ArgentX signatures have 2 segments: [R, S]
- *  * Braavos signatures have 3 segments: [Recovery, R, S]
- */
-export function getSeedFromStarknetSignature(
-  signature: Starknet.Signature,
-): string {
-  const segments = Starknet.stark.signatureToHexArray(signature);
+export async function getAccountSupport(
+  account: Starknet.AccountInterface,
+): Promise<AccountSupport> {
+  const classHash = await getAccountClassHash(account);
 
-  if (segments.length === 2) {
-    const [r, _s] = segments;
-    if (r == null) throw new Error('Starknet signature is missing R segment');
-    return r;
+  const contract = await buildAccountContract(account);
+
+  const accountSupport = new AccountSupport(contract, classHash);
+
+  try {
+    const supportCheckResult = await accountSupport.check();
+
+    if (!supportCheckResult.ok) {
+      const message =
+        supportCheckResult.reason ??
+        'Unspecified error checking account support';
+      throw new Error(message);
+    }
+  } catch (cause) {
+    const message = 'Error checking account support. Please try again.';
+    throw new Error(message);
   }
 
-  if (segments.length === 3) {
-    const [_recovery, r, _s] = segments;
-    if (r == null) throw new Error('Starknet signature is missing R segment');
-    return r;
-  }
+  return accountSupport;
+}
 
-  throw new Error('Invalid Starknet signature');
+async function getAccountClassHash(
+  account: Starknet.AccountInterface,
+): Promise<string> {
+  try {
+    const classHash = await account.getClassHashAt(account.address);
+    return classHash;
+  } catch (cause) {
+    const message =
+      'Cannot determine account type. Make sure your' +
+      ' account contract is deployed and try again.';
+    throw new Error(message);
+  }
+}
+
+async function buildAccountContract(
+  account: AccountInterface,
+): Promise<Starknet.Contract> {
+  const accountClass = await account.getClassAt(account.address);
+  const contract = new Starknet.Contract(
+    accountClass.abi,
+    account.address,
+    account,
+  );
+  return contract;
 }
