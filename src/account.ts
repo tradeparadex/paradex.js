@@ -55,8 +55,9 @@ export async function fromStarknetAccount({
   const starknetChainId = config.l2ChainId;
   const starkKeyTypedData =
     starknetSigner.buildStarknetStarkKeyTypedData(starknetChainId);
+  const accountSupport = await starknetSigner.getAccountSupport(account);
   const signature = await account.signMessage(starkKeyTypedData);
-  const seed = starknetSigner.getSeedFromStarknetSignature(signature);
+  const seed = accountSupport.getSeedFromSignature(signature);
   const [privateKey, publicKey] =
     await starknetSigner.getStarkKeypairFromStarknetSignature(seed);
   const address = generateAccountAddress({

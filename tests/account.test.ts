@@ -63,6 +63,18 @@ describe('create account from starknet signer', () => {
         testCase.snPrivateKey,
       );
 
+      jest
+        .spyOn(snAccount, 'getClassHashAt')
+        .mockResolvedValueOnce(
+          '0x1a736d6ed154502257f02b1ccdf4d9d1089f80811cd6acad48e6b6a9d1f2003',
+        );
+      jest.spyOn(snAccount, 'getClassAt').mockResolvedValueOnce({
+        sierra_program: [],
+        contract_class_version: '',
+        entry_points_by_type: { CONSTRUCTOR: [], EXTERNAL: [], L1_HANDLER: [] },
+        abi: [{ type: 'function', inputs: [{ type: '::' }] }], // mock cairo1 contract abi
+      });
+
       const account = await Account.fromStarknetAccount({
         provider: createMockProvider(),
         config: configFactory(),
