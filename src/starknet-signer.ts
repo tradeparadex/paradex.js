@@ -1,12 +1,8 @@
 import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
-import type {
-  AccountInterface,
-  Signature,
-  SignerInterface,
-  TypedData,
-} from 'starknet';
+import type { Signature, SignerInterface, TypedData } from 'starknet';
 import * as Starknet from 'starknet';
 
+import { STARKNET_MAINNET_CHAIN_ID } from './constants.js';
 import { AccountSupport } from './starknet-account-support.js';
 
 export type { SignerInterface as Signer, TypedData, Signature };
@@ -58,10 +54,17 @@ export async function getStarkKeypairFromStarknetSignature(
 
 export async function getAccountSupport(
   account: Starknet.AccountInterface,
+  starknetProvider: Starknet.ProviderInterface,
 ): Promise<AccountSupport> {
-  const classHash = await getAccountClassHash(account);
+  const classHash = await getAccountClassHash(
+    starknetProvider,
+    account.address,
+  );
 
-  const contract = await buildAccountContract(account);
+  const contract = await buildAccountContract(
+    starknetProvider,
+    account.address,
+  );
 
   const accountSupport = new AccountSupport(contract, classHash);
 
@@ -82,11 +85,33 @@ export async function getAccountSupport(
   return accountSupport;
 }
 
+const RPC_NODES_MAINNET: readonly string[] = [
+  'https://starknet-mainnet.public.blastapi.io',
+  'https://free-rpc.nethermind.io/mainnet-juno',
+];
+const RPC_NODES_TESTNET: readonly string[] = [
+  'https://starknet-sepolia.public.blastapi.io',
+  'https://free-rpc.nethermind.io/sepolia-juno',
+];
+
+export function getPublicProvider(chainId: string): Starknet.ProviderInterface {
+  const nodes =
+    chainId === STARKNET_MAINNET_CHAIN_ID
+      ? RPC_NODES_MAINNET
+      : RPC_NODES_TESTNET;
+  const randIdx = Math.floor(Math.random() * nodes.length);
+  const node = nodes[randIdx];
+  if (node == null) throw new Error('No public provider defined');
+  const provider = new Starknet.RpcProvider({ nodeUrl: node });
+  return provider;
+}
+
 async function getAccountClassHash(
-  account: Starknet.AccountInterface,
+  provider: Starknet.ProviderInterface,
+  accountAddress: string,
 ): Promise<string> {
   try {
-    const classHash = await account.getClassHashAt(account.address);
+    const classHash = await provider.getClassHashAt(accountAddress);
     return classHash;
   } catch (cause) {
     const message =
@@ -97,13 +122,14 @@ async function getAccountClassHash(
 }
 
 async function buildAccountContract(
-  account: AccountInterface,
+  provider: Starknet.ProviderInterface,
+  accountAddress: string,
 ): Promise<Starknet.Contract> {
-  const accountClass = await account.getClassAt(account.address);
+  const accountClass = await provider.getClassAt(accountAddress);
   const contract = new Starknet.Contract(
     accountClass.abi,
-    account.address,
-    account,
+    accountAddress,
+    provider,
   );
   return contract;
 }
