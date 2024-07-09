@@ -24,7 +24,7 @@ export async function fromEthSigner({
   signer,
 }: FromEthSignerParams): Promise<Account> {
   const starkKeyTypedData = ethereumSigner.buildEthereumStarkKeyTypedData(
-    config.l1ChainId,
+    config.ethereumChainId,
   );
   const seed = await signer.signTypedData(starkKeyTypedData);
   const privateKey = keyDerivation.getPrivateKeyFromEthSignature(seed);
@@ -38,9 +38,11 @@ export async function fromEthSigner({
 }
 
 interface FromStarknetAccountParams {
+  /** Paradex chain provider */
   readonly provider: Starknet.ProviderOptions | Starknet.ProviderInterface;
   readonly config: ParadexConfig;
   readonly account: Starknet.AccountInterface;
+  readonly starknetProvider?: Starknet.ProviderInterface;
 }
 
 /**
@@ -51,11 +53,17 @@ export async function fromStarknetAccount({
   provider,
   config,
   account,
+  starknetProvider,
 }: FromStarknetAccountParams): Promise<Account> {
-  const starknetChainId = config.l2ChainId;
-  const starkKeyTypedData =
-    starknetSigner.buildStarknetStarkKeyTypedData(starknetChainId);
-  const accountSupport = await starknetSigner.getAccountSupport(account);
+  const starkKeyTypedData = starknetSigner.buildStarknetStarkKeyTypedData(
+    config.starknetChainId,
+  );
+
+  const accountSupport = await starknetSigner.getAccountSupport(
+    account,
+    starknetProvider ??
+      starknetSigner.getPublicProvider(config.starknetChainId),
+  );
   const signature = await account.signMessage(starkKeyTypedData);
   const seed = accountSupport.getSeedFromSignature(signature);
   const [privateKey, publicKey] =

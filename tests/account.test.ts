@@ -64,11 +64,11 @@ describe('create account from starknet signer', () => {
       );
 
       jest
-        .spyOn(snAccount, 'getClassHashAt')
+        .spyOn(snProvider, 'getClassHashAt')
         .mockResolvedValueOnce(
           '0x1a736d6ed154502257f02b1ccdf4d9d1089f80811cd6acad48e6b6a9d1f2003',
         );
-      jest.spyOn(snAccount, 'getClassAt').mockResolvedValueOnce({
+      jest.spyOn(snProvider, 'getClassAt').mockResolvedValueOnce({
         sierra_program: [],
         contract_class_version: '',
         entry_points_by_type: { CONSTRUCTOR: [], EXTERNAL: [], L1_HANDLER: [] },
@@ -79,6 +79,7 @@ describe('create account from starknet signer', () => {
         provider: createMockProvider(),
         config: configFactory(),
         account: snAccount,
+        starknetProvider: snProvider,
       });
 
       expect(account.address).toBe(testCase.paradexAddress);

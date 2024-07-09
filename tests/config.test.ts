@@ -47,8 +47,8 @@ describe('buildConfig', () => {
           symbol: 'USDC',
         },
       },
-      l1ChainId: '11155111',
-      l2ChainId: 'SN_SEPOLIA',
+      ethereumChainId: '11155111',
+      starknetChainId: 'SN_SEPOLIA',
       paraclearAccountHash:
         '0x41cb0280ebadaa75f996d8d92c6f265f6d040bb3ba442e5f86a554f1765244e',
       paraclearAccountProxyHash:
@@ -56,8 +56,8 @@ describe('buildConfig', () => {
       paraclearAddress:
         '0x286003f7c7bfc3f94e8f0af48b48302e7aee2fb13c23b141479ba00832ef2c6',
       paraclearDecimals: 8,
-      starknetChainId: '0x505249564154455f534e5f504f54435f5345504f4c4941',
-      starknetFullNodeRpcUrl:
+      paradexChainId: 'PRIVATE_SN_POTC_SEPOLIA',
+      paradexFullNodeRpcUrl:
         'https://pathfinder.api.testnet.paradex.trade/rpc/v0_7',
     };
 
