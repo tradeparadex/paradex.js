@@ -97,6 +97,60 @@ test('Argent v0.4.0 with Starknet signer, default signature', async () => {
   expect(seed).toBe('0x4');
 });
 
+test('Argent v0.4.0 with Starknet signer, guardian signature', async () => {
+  const { accountSupport, contract } = setup(
+    '0x036078334509b514626504edc9fb252328d1a240e4e948bef8d0c08dff45927f',
+  );
+
+  jest
+    .spyOn(contract, 'call')
+    .mockResolvedValue(new Starknet.CairoCustomEnum({ Starknet: {} }));
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(true);
+
+  const seed = accountSupport.getSeedFromSignature([
+    '0x2', // Signatures count
+    '0x2', // Signer type
+    '0x3', // Public key
+    '0x4', // R
+    '0x5', // S
+    '0x6', // Signer type
+    '0x7', // Public key
+    '0x8', // R
+    '0x9', // S
+  ]);
+  expect(seed).toBe('0x4');
+});
+
+test('Argent v0.4.0 with Starknet signer, unexpected signature', async () => {
+  const { accountSupport, contract } = setup(
+    '0x036078334509b514626504edc9fb252328d1a240e4e948bef8d0c08dff45927f',
+  );
+
+  jest
+    .spyOn(contract, 'call')
+    .mockResolvedValue(new Starknet.CairoCustomEnum({ Starknet: {} }));
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(true);
+
+  expect(() => {
+    accountSupport.getSeedFromSignature([
+      '0x2', // Signatures count
+      '0x2', // Signer type
+      '0x3', // Public key
+      '0x4', // R
+      '0x5', // S
+      '0x6', // Signer type
+      '0x7', // Public key
+      '0x8', // R
+      '0x9', // S
+      '0x10', // ???
+    ]);
+  }).toThrow('Unsupported Argent signature');
+});
+
 test('Argent v0.4.0 with Secp256k1 signer', async () => {
   const { accountSupport, contract } = setup(
     '0x036078334509b514626504edc9fb252328d1a240e4e948bef8d0c08dff45927f',
