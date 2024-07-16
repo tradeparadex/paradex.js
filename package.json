@@ -1,6 +1,6 @@
 {
   "name": "@paradex/sdk",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "JavaScript SDK for Paradex",
   "main": "dist/index.js",
   "files": [
