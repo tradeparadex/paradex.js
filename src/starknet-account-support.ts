@@ -239,13 +239,13 @@ export class AccountSupport {
       }
 
       case 'argent-v0.4.0-starknet-signer': {
-        if (segments.length === 2) {
+        if (segments.length === 2 || segments.length === 4) {
           const [r, _s] = segments;
           if (r == null)
             throw new Error('Argent signature is missing R segment');
           return r;
         }
-        if (segments.length === 5) {
+        if (segments.length === 5 || segments.length === 9) {
           const [_numSignatures, _sigType, _pubKey, r, _s] = segments;
           if (r == null)
             throw new Error('Argent signature is missing R segment');
