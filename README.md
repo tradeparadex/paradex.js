@@ -25,7 +25,6 @@ Have a feature to request or a bug to report?
 Drop us a message on [Discord].
 
 [Discord]: https://discord.gg/paradex
-[get in touch]: #get-in-touch
 
 ## Warning
 
