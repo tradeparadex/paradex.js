@@ -125,7 +125,7 @@ function generateAccountAddress({
 /**
  * Checks if starknet signatures are equal.
  */
-function isStarknetSignatureEqual(
+export function isStarknetSignatureEqual(
   signature: Starknet.Signature,
   additionalSignature: Starknet.Signature,
 ): boolean {
