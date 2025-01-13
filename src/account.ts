@@ -71,7 +71,7 @@ export async function fromStarknetAccount({
   );
   const signature = await account.signMessage(starkKeyTypedData);
   const additionalSignature = await account.signMessage(starkKeyTypedData);
-  if (!isStarknetSignatureDeterministic(signature, additionalSignature))
+  if (!isStarknetSignatureEqual(signature, additionalSignature))
     throw new Error(
       'Wallet does not support deterministic signing. Please use different wallet.',
     );
@@ -123,9 +123,9 @@ function generateAccountAddress({
 }
 
 /**
- * Checks if starknet signature is valid.
+ * Checks if starknet signatures are equal.
  */
-function isStarknetSignatureDeterministic(
+function isStarknetSignatureEqual(
   signature: Starknet.Signature,
   additionalSignature: Starknet.Signature,
 ): boolean {
