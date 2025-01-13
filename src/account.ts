@@ -27,6 +27,11 @@ export async function fromEthSigner({
     config.ethereumChainId,
   );
   const seed = await signer.signTypedData(starkKeyTypedData);
+  const additionalSeed = await signer.signTypedData(starkKeyTypedData);
+  if (seed !== additionalSeed)
+    throw new Error(
+      'Wallet does not support deterministic signing. Please use different wallet.',
+    );
   const privateKey = keyDerivation.getPrivateKeyFromEthSignature(seed);
   const publicKey = keyDerivation.privateToStarkKey(privateKey);
   const address = generateAccountAddress({
@@ -65,6 +70,11 @@ export async function fromStarknetAccount({
       starknetSigner.getPublicProvider(config.starknetChainId),
   );
   const signature = await account.signMessage(starkKeyTypedData);
+  const additionalSignature = await account.signMessage(starkKeyTypedData);
+  if (!isStarknetSignatureEqual(signature, additionalSignature))
+    throw new Error(
+      'Wallet does not support deterministic signing. Please use different wallet.',
+    );
   const seed = accountSupport.getSeedFromSignature(signature);
   const [privateKey, publicKey] =
     await starknetSigner.getStarkKeypairFromStarknetSignature(seed);
@@ -110,4 +120,27 @@ function generateAccountAddress({
   );
 
   return address as Hex;
+}
+
+/**
+ * Checks if starknet signatures are equal.
+ */
+export function isStarknetSignatureEqual(
+  signature: Starknet.Signature,
+  additionalSignature: Starknet.Signature,
+): boolean {
+  if (Array.isArray(signature) && Array.isArray(additionalSignature)) {
+    return (
+      signature.length === additionalSignature.length &&
+      signature.every((value, index) => value === additionalSignature[index])
+    );
+  }
+  // Cast Starknet.WeierstrassSignatureType
+  const signatureWeierstrass = signature as Starknet.WeierstrassSignatureType;
+  const additionalSignatureWeierstrass =
+    additionalSignature as Starknet.WeierstrassSignatureType;
+  return (
+    signatureWeierstrass.r === additionalSignatureWeierstrass.r &&
+    signatureWeierstrass.s === additionalSignatureWeierstrass.s
+  );
 }

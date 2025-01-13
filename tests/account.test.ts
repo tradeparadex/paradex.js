@@ -1,7 +1,9 @@
+import type { SignatureType } from '@noble/curves/abstract/weierstrass';
 import { ethers } from 'ethers';
 import * as Starknet from 'starknet';
 
 import * as Account from '../src/account';
+import { isStarknetSignatureEqual } from '../src/account';
 import { ethersSignerAdapter } from '../src/ethereum-signer';
 
 import { configFactory } from './factories/paradex-config';
@@ -86,3 +88,104 @@ describe('create account from starknet signer', () => {
     }
   });
 });
+
+describe('isStarknetSignatureEqual', () => {
+  describe('array signatures', () => {
+    test('should return true for identical array signatures', () => {
+      const sig1 = ['0x1234', '0x5678'];
+      const sig2 = ['0x1234', '0x5678'];
+
+      const result = isStarknetSignatureEqual(sig1, sig2);
+
+      expect(result).toBe(true);
+    });
+
+    test('should return false for array signatures with different values', () => {
+      const sig1 = ['0x1234', '0x5678'];
+      const sig2 = ['0x1234', '0x9abc'];
+
+      const result = isStarknetSignatureEqual(sig1, sig2);
+
+      expect(result).toBe(false);
+    });
+
+    test('should return false for array signatures with different lengths', () => {
+      const sig1 = ['0x1234', '0x5678'];
+      const sig2 = ['0x1234', '0x5678', '0x9abc'];
+
+      const result = isStarknetSignatureEqual(sig1, sig2);
+
+      expect(result).toBe(false);
+    });
+
+    test('should return true for empty array signatures', () => {
+      const sig1: string[] = [];
+      const sig2: string[] = [];
+
+      const result = isStarknetSignatureEqual(sig1, sig2);
+
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('Weierstrass signatures', () => {
+    test('should return true for identical Weierstrass signatures', () => {
+      const sig1 = createMockSignature(BigInt('0x1234'), BigInt('0x5678'));
+      const sig2 = createMockSignature(BigInt('0x1234'), BigInt('0x5678'));
+
+      const result = isStarknetSignatureEqual(sig1, sig2);
+
+      expect(result).toBe(true);
+    });
+
+    test('should return false for Weierstrass signatures with different r values', () => {
+      const sig1 = createMockSignature(BigInt('0x1234'), BigInt('0x5678'));
+      const sig2 = createMockSignature(BigInt('0x9abc'), BigInt('0x5678'));
+
+      const result = isStarknetSignatureEqual(sig1, sig2);
+
+      expect(result).toBe(false);
+    });
+
+    test('should return false for Weierstrass signatures with different s values', () => {
+      const sig1 = createMockSignature(BigInt('0x1234'), BigInt('0x5678'));
+      const sig2 = createMockSignature(BigInt('0x1234'), BigInt('0x9abc'));
+
+      const result = Account.isStarknetSignatureEqual(sig1, sig2);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('mixed signature types', () => {
+    test('should handle comparing array signature with Weierstrass signature', () => {
+      const sig1 = ['0x1234', '0x5678'];
+      const sig2 = createMockSignature(BigInt('0x1234'), BigInt('0x5678'));
+
+      const result = isStarknetSignatureEqual(sig1, sig2);
+
+      expect(result).toBe(false);
+    });
+  });
+});
+
+export function createMockSignature(
+  r: bigint,
+  s: bigint,
+  recovery?: number,
+): SignatureType {
+  return {
+    r,
+    s,
+    recovery,
+    assertValidity: jest.fn(),
+    addRecoveryBit: jest.fn(),
+    hasHighS: jest.fn(),
+    normalizeS: jest.fn(),
+    recoverPublicKey: jest.fn(),
+    toCompactRawBytes: jest.fn(),
+    toCompactHex: jest.fn(),
+    toDERRawBytes: jest.fn(),
+    toDERHex: jest.fn(),
+  };
+}
