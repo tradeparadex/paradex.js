@@ -15,7 +15,7 @@ import { createMockProvider } from './mocks/provider';
 describe('getBalance', () => {
   test('should return the balance size', async () => {
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({ result: [9900000000] });
+    mockProvider.callContract.mockResolvedValueOnce([9900000000]);
 
     const result = await getTokenBalance({
       config: configFactory(),
@@ -29,7 +29,7 @@ describe('getBalance', () => {
 
   test('should throw an error if token is not supported', async () => {
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({ result: [9900000000] });
+    mockProvider.callContract.mockResolvedValueOnce([9900000000]);
 
     const result = getTokenBalance({
       config: configFactory(),
@@ -43,7 +43,7 @@ describe('getBalance', () => {
 
   test('should throw an error if calling the contract returns no value', async () => {
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({ result: [] });
+    mockProvider.callContract.mockResolvedValueOnce([]);
 
     const result = getTokenBalance({
       config: configFactory(),
@@ -57,9 +57,7 @@ describe('getBalance', () => {
 
   test('should throw an error if balance parsing fails', async () => {
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({
-      result: ['not a number'],
-    });
+    mockProvider.callContract.mockResolvedValueOnce(['not a number']);
 
     const result = getTokenBalance({
       config: configFactory(),
@@ -75,7 +73,7 @@ describe('getBalance', () => {
 describe('getSocializedLossFactor', () => {
   test('should return the socialized loss factor', async () => {
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({ result: ['123456789'] });
+    mockProvider.callContract.mockResolvedValueOnce(['123456789']);
 
     const result = await getSocializedLossFactor({
       config: configFactory(),
@@ -87,7 +85,7 @@ describe('getSocializedLossFactor', () => {
 
   test('should throw an error if the result is null', async () => {
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({ result: [null] });
+    mockProvider.callContract.mockResolvedValueOnce([null]);
 
     const result = getSocializedLossFactor({
       config: configFactory(),
@@ -101,9 +99,7 @@ describe('getSocializedLossFactor', () => {
 
   test('should throw an error if the result is not a number', async () => {
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({
-      result: ['not a number'],
-    });
+    mockProvider.callContract.mockResolvedValueOnce(['not a number']);
 
     const result = getSocializedLossFactor({
       config: configFactory(),
@@ -122,9 +118,9 @@ describe('getReceivableAmount', () => {
     const socializedLossFactorChain = '1000000';
 
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({
-      result: [socializedLossFactorChain],
-    });
+    mockProvider.callContract.mockResolvedValueOnce([
+      socializedLossFactorChain,
+    ]);
 
     const result = await getReceivableAmount({
       config: configFactory(),
@@ -164,9 +160,7 @@ describe('getReceivableAmount', () => {
 
   test('should throw an error if socialized loss factor is not a number', async () => {
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({
-      result: ['not a number'],
-    });
+    mockProvider.callContract.mockResolvedValueOnce(['not a number']);
 
     const result = getReceivableAmount({
       config: configFactory(),
@@ -182,7 +176,7 @@ describe('getReceivableAmount', () => {
 
   test('should throw an error if socialized loss factor is null', async () => {
     const mockProvider = { callContract: jest.fn() };
-    mockProvider.callContract.mockResolvedValueOnce({ result: [null] });
+    mockProvider.callContract.mockResolvedValueOnce([null]);
 
     const result = getReceivableAmount({
       config: configFactory(),
