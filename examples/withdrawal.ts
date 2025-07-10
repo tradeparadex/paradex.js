@@ -12,13 +12,14 @@ declare global {
 //  1. Fetch Paradex config
 //  2. Create Paraclear provider
 //  3. Derive Paradex account from Ethereum signer
-//  4. Get user's USDC balance
-//  5. Withdraw USDC
+//  4. Enable authentication on provider
+//  5. Get user's USDC balance
+//  6. Withdraw USDC
 
 // 1. Fetch Paradex config for the relevant environment
 const config = await Paradex.Config.fetchConfig('testnet'); // "testnet" | "mainnet"
 
-// 2. Create Paraclear provider
+// 2. Create Paraclear provider (without authentication initially)
 const paraclearProvider = new Paradex.ParaclearProvider.DefaultProvider(config);
 
 // 3. Derive Paradex account from Ethereum signer
@@ -38,26 +39,29 @@ const paradexAccount = await Paradex.Account.fromEthSigner({
   signer,
 });
 
-// 4. Get user's USDC balance
+// 4. Enable authentication on provider now that we have the account
+paraclearProvider.enableAuthentication(paradexAccount);
+
+// 5. Get user's USDC balance
 const getBalanceResult = await Paradex.Paraclear.getTokenBalance({
-  provider: paraclearProvider, // account can be passed as the provider
+  provider: paraclearProvider,
   config,
   account: paradexAccount,
   token: 'USDC',
 });
 console.log(getBalanceResult); // { size: '100.45' }
 
-// 5. Withdrawal
+// 6. Withdrawal
 
-//  5.1. Get receivable amount and socialized loss factor
+//  6.1. Get receivable amount and socialized loss factor
 const receivableAmountResult = await Paradex.Paraclear.getReceivableAmount({
-  provider: paraclearProvider, // account can be passed as the provider
+  provider: paraclearProvider,
   config,
   token: 'USDC',
   amount: '50.4',
 });
 
-//  5.2. Check if socialized loss factor is not 0
+//  6.2. Check if socialized loss factor is not 0
 if (Number(receivableAmountResult.socializedLossFactor) !== 0) {
   // Display a warning to the user, suggesting to withdraw a smaller
   // amount or to wait for the socialized loss factor to decrease.
@@ -67,7 +71,7 @@ if (Number(receivableAmountResult.socializedLossFactor) !== 0) {
   );
 }
 
-//  5.3. Request withdrawal (batches 1. withdraw from Paraclear contract
+//  6.3. Request withdrawal (batches 1. withdraw from Paraclear contract
 //  and 2. deposit to the bridge in `bridgeCall`) for atomic transaction.
 //  Note that the requested withdraw amount can be different from the amount
 //  that will be received if socialized loss is active. Use the receivable
@@ -85,6 +89,6 @@ const withdrawResult = await Paradex.Paraclear.withdraw({
 });
 console.log(withdrawResult); // { hash: '0x...' }
 
-//  5.4. Monitor batch withdrawal transaction to completion
+//  6.4. Monitor batch withdrawal transaction to completion
 //  https://www.starknetjs.com/docs/api/classes/providerinterface/#waitfortransaction
 await paraclearProvider.waitForTransaction(withdrawResult.hash);
