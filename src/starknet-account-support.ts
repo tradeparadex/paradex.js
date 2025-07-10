@@ -1,5 +1,29 @@
 import * as Starknet from 'starknet';
 
+// Class hashes for different account types
+const ARGENT_V0_3_0_CLASS_HASH =
+  '0x1a736d6ed154502257f02b1ccdf4d9d1089f80811cd6acad48e6b6a9d1f2003';
+const ARGENT_V0_3_1_CLASS_HASH =
+  '0x29927c8af6bccf3f6fda035981e765a7bdbf18a2dc0d630494f8758aa908e2b';
+const ARGENT_V0_4_0_CLASS_HASH =
+  '0x036078334509b514626504edc9fb252328d1a240e4e948bef8d0c08dff45927f';
+const ARGENT_MULTICALL_CLASS_HASH =
+  '0x0381f14e5e0db5889c981bf050fb034c0fbe0c4f070ee79346a05dbe2bf2af90';
+const ARGENT_MULTISIG_V0_1_0_CLASS_HASH =
+  '0x737ee2f87ce571a58c6c8da558ec18a07ceb64a6172d5ec46171fbc80077a48';
+const ARGENT_MULTISIG_V0_1_1_CLASS_HASH =
+  '0x6e150953b26271a740bf2b6e9bca17cc52c68d765f761295de51ceb8526ee72';
+const ARGENT_MULTISIG_V0_2_0_CLASS_HASH =
+  '0x07aeca3456816e3b833506d7cc5c1313d371fbdb0ae95ee70af72a4ddbf42594';
+const BRAAVOS_MULTI_OWNER_V1_0_0_CLASS_HASH =
+  '0x041bf1e71792aecb9df3e9d04e1540091c5e13122a731e02bec588f71dc1a5c3';
+const BRAAVOS_V1_0_0_CLASS_HASH =
+  '0x00816dd0297efc55dc1e7559020a3a825e81ef734b558f03c83325d4da7e6253';
+const BRAAVOS_V1_1_0_CLASS_HASH =
+  '0x02c8c7e6fbcfb3e8e15a46648e8914c6aa1fc506fc1e7fb3d1e19630716174bc';
+const BRAAVOS_V1_2_0_CLASS_HASH =
+  '0x03957f9f5a1cbfe918cedc2015c85200ca51a5f7506ecb6de98a5207b759bf8a';
+
 type SignatureFormat =
   | 'argent-v0.3.0'
   | 'argent-v0.3.1'
@@ -17,7 +41,10 @@ type SignatureFormat =
   | 'braavos-v1.0.0-multisig'
   | 'braavos-v1.1.0-stark-signer'
   | 'braavos-v1.1.0-strong-signer'
+  | 'braavos-v1.2.0-stark-signer'
+  | 'braavos-v1.2.0-strong-signer'
   | 'braavos-v1.1.0-multisig'
+  | 'braavos-v1.2.0-multisig'
   | 'braavos-multi-owner-v1.0.0'
   | 'unknown';
 
@@ -43,27 +70,15 @@ export class AccountSupport {
   }
 
   private async getFormat(): Promise<SignatureFormat> {
-    if (
-      this.testClassHash(
-        '0x1a736d6ed154502257f02b1ccdf4d9d1089f80811cd6acad48e6b6a9d1f2003',
-      )
-    ) {
+    if (this.testClassHash(ARGENT_V0_3_0_CLASS_HASH)) {
       return 'argent-v0.3.0';
     }
 
-    if (
-      this.testClassHash(
-        '0x29927c8af6bccf3f6fda035981e765a7bdbf18a2dc0d630494f8758aa908e2b',
-      )
-    ) {
+    if (this.testClassHash(ARGENT_V0_3_1_CLASS_HASH)) {
       return 'argent-v0.3.1';
     }
 
-    if (
-      this.testClassHash(
-        '0x036078334509b514626504edc9fb252328d1a240e4e948bef8d0c08dff45927f',
-      )
-    ) {
+    if (this.testClassHash(ARGENT_V0_4_0_CLASS_HASH)) {
       const ownerTypeResp = (await this.contract.call(
         'get_owner_type',
       )) as Starknet.CairoCustomEnum;
@@ -86,53 +101,29 @@ export class AccountSupport {
       }
     }
 
-    if (
-      this.testClassHash(
-        '0x0381f14e5e0db5889c981bf050fb034c0fbe0c4f070ee79346a05dbe2bf2af90',
-      )
-    ) {
+    if (this.testClassHash(ARGENT_MULTICALL_CLASS_HASH)) {
       return 'argent-multicall';
     }
 
-    if (
-      this.testClassHash(
-        '0x737ee2f87ce571a58c6c8da558ec18a07ceb64a6172d5ec46171fbc80077a48',
-      )
-    ) {
+    if (this.testClassHash(ARGENT_MULTISIG_V0_1_0_CLASS_HASH)) {
       return 'argent-multisig-v0.1.0';
     }
 
-    if (
-      this.testClassHash(
-        '0x6e150953b26271a740bf2b6e9bca17cc52c68d765f761295de51ceb8526ee72',
-      )
-    ) {
+    if (this.testClassHash(ARGENT_MULTISIG_V0_1_1_CLASS_HASH)) {
       return 'argent-multisig-v0.1.1';
     }
 
-    if (
-      this.testClassHash(
-        '0x07aeca3456816e3b833506d7cc5c1313d371fbdb0ae95ee70af72a4ddbf42594',
-      )
-    ) {
+    if (this.testClassHash(ARGENT_MULTISIG_V0_2_0_CLASS_HASH)) {
       return 'argent-multisig-v0.2.0';
     }
 
     // https://github.com/myBraavos/braavos-account-cairo/blob/6efdfd597bb051e99c79a512fccd14ee2523c898/README_MOA.md
-    if (
-      this.testClassHash(
-        '0x041bf1e71792aecb9df3e9d04e1540091c5e13122a731e02bec588f71dc1a5c3',
-      )
-    ) {
+    if (this.testClassHash(BRAAVOS_MULTI_OWNER_V1_0_0_CLASS_HASH)) {
       return 'braavos-multi-owner-v1.0.0';
     }
 
     // https://github.com/myBraavos/braavos-account-cairo/tree/v1.0.0
-    if (
-      this.testClassHash(
-        '0x00816dd0297efc55dc1e7559020a3a825e81ef734b558f03c83325d4da7e6253',
-      )
-    ) {
+    if (this.testClassHash(BRAAVOS_V1_0_0_CLASS_HASH)) {
       const multiSigThreshold = (await this.contract.call(
         'get_multisig_threshold',
       )) as bigint;
@@ -158,15 +149,8 @@ export class AccountSupport {
       return 'unknown';
     }
 
-    // New Braavos account contract, not available on GitHub
-    // Reported to be an upgrade to the previous Braavos account contract
-    // https://tradeparadigm.slack.com/archives/C06TRUBLSDB/p1731706968018819?thread_ts=1720108178.898199&cid=C06TRUBLSDB
-
-    if (
-      this.testClassHash(
-        '0x02c8c7e6fbcfb3e8e15a46648e8914c6aa1fc506fc1e7fb3d1e19630716174bc',
-      )
-    ) {
+    // https://github.com/myBraavos/braavos-account-cairo/tree/v1.1.0
+    if (this.testClassHash(BRAAVOS_V1_1_0_CLASS_HASH)) {
       const multiSigThreshold = (await this.contract.call(
         'get_multisig_threshold',
       )) as bigint;
@@ -192,6 +176,33 @@ export class AccountSupport {
       return 'unknown';
     }
 
+    // https://github.com/myBraavos/braavos-account-cairo/tree/v1.2.0
+    if (this.testClassHash(BRAAVOS_V1_2_0_CLASS_HASH)) {
+      const multiSigThreshold = (await this.contract.call(
+        'get_multisig_threshold',
+      )) as bigint;
+
+      if (multiSigThreshold !== 0n) {
+        return 'braavos-v1.2.0-multisig';
+      }
+
+      const signers = (await this.contract.call('get_signers')) as {
+        readonly secp256r1?: string[];
+        readonly stark?: string[];
+        readonly webauthn?: string[];
+      };
+
+      if (signers.secp256r1 != null && signers.secp256r1.length > 0)
+        return 'braavos-v1.2.0-strong-signer';
+      if (signers.webauthn != null && signers.webauthn.length > 0)
+        return 'braavos-v1.2.0-strong-signer';
+
+      if (signers.stark != null && signers.stark.length === 1)
+        return 'braavos-v1.2.0-stark-signer';
+
+      return 'unknown';
+    }
+
     return 'unknown';
   }
 
@@ -204,6 +215,7 @@ export class AccountSupport {
       case 'argent-v0.4.0-starknet-signer':
       case 'braavos-v1.0.0-stark-signer':
       case 'braavos-v1.1.0-stark-signer':
+      case 'braavos-v1.2.0-stark-signer':
         return { ok: true };
       case 'argent-v0.4.0-secp256k1-signer':
         return {
@@ -239,12 +251,14 @@ export class AccountSupport {
         };
       case 'braavos-v1.0.0-strong-signer':
       case 'braavos-v1.1.0-strong-signer':
+      case 'braavos-v1.2.0-strong-signer':
         return {
           ok: false,
           reason: 'Braavos strong signer is not supported',
         };
       case 'braavos-v1.0.0-multisig':
       case 'braavos-v1.1.0-multisig':
+      case 'braavos-v1.2.0-multisig':
         return {
           ok: false,
           reason: 'Braavos multisig is not supported',
@@ -295,7 +309,8 @@ export class AccountSupport {
       }
 
       case 'braavos-v1.0.0-stark-signer':
-      case 'braavos-v1.1.0-stark-signer': {
+      case 'braavos-v1.1.0-stark-signer':
+      case 'braavos-v1.2.0-stark-signer': {
         if (segments.length === 2) {
           const [r, _s] = segments;
           if (r == null)
@@ -321,8 +336,10 @@ export class AccountSupport {
       case 'argent-multisig-v0.2.0':
       case 'braavos-v1.0.0-strong-signer':
       case 'braavos-v1.1.0-strong-signer':
+      case 'braavos-v1.2.0-strong-signer':
       case 'braavos-v1.0.0-multisig':
       case 'braavos-v1.1.0-multisig':
+      case 'braavos-v1.2.0-multisig':
       case 'braavos-multi-owner-v1.0.0':
         throw new Error(`${this.signatureFormat} is not supported`);
 

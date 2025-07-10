@@ -411,6 +411,90 @@ test('Braavos v1.1.0 single stark signer [signerType,r,s]', async () => {
   expect(seed).toBe('0x2');
 });
 
+test('Braavos v1.2.0 multisig', async () => {
+  const { accountSupport, contract } = setup(
+    '0x03957f9f5a1cbfe918cedc2015c85200ca51a5f7506ecb6de98a5207b759bf8a',
+  );
+
+  jest.spyOn(contract, 'call').mockResolvedValueOnce(1n);
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(false);
+});
+
+test('Braavos v1.2.0 secp256r1 strong signer', async () => {
+  const { accountSupport, contract } = setup(
+    '0x03957f9f5a1cbfe918cedc2015c85200ca51a5f7506ecb6de98a5207b759bf8a',
+  );
+
+  jest.spyOn(contract, 'call').mockResolvedValueOnce(0n);
+  jest.spyOn(contract, 'call').mockResolvedValueOnce({ secp256r1: 1n });
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(false);
+});
+
+test('Braavos v1.2.0 webauthn strong signer', async () => {
+  const { accountSupport, contract } = setup(
+    '0x03957f9f5a1cbfe918cedc2015c85200ca51a5f7506ecb6de98a5207b759bf8a',
+  );
+
+  jest.spyOn(contract, 'call').mockResolvedValueOnce(0n);
+  jest.spyOn(contract, 'call').mockResolvedValueOnce({ webauthn: [1n] });
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(false);
+});
+
+test('Braavos v1.2.0 multiple stark signers', async () => {
+  const { accountSupport, contract } = setup(
+    '0x03957f9f5a1cbfe918cedc2015c85200ca51a5f7506ecb6de98a5207b759bf8a',
+  );
+
+  jest.spyOn(contract, 'call').mockResolvedValueOnce(0n);
+  jest.spyOn(contract, 'call').mockResolvedValueOnce({ stark: [1n, 2n] });
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(false);
+});
+
+test('Braavos v1.2.0 single stark signer [r,s]', async () => {
+  const { accountSupport, contract } = setup(
+    '0x03957f9f5a1cbfe918cedc2015c85200ca51a5f7506ecb6de98a5207b759bf8a',
+  );
+
+  jest.spyOn(contract, 'call').mockResolvedValueOnce(0n);
+  jest.spyOn(contract, 'call').mockResolvedValueOnce({ stark: [1n] });
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(true);
+
+  const seed = accountSupport.getSeedFromSignature([
+    '0x1', // R
+    '0x2', // S
+  ]);
+  expect(seed).toBe('0x1');
+});
+
+test('Braavos v1.2.0 single stark signer [signerType,r,s]', async () => {
+  const { accountSupport, contract } = setup(
+    '0x03957f9f5a1cbfe918cedc2015c85200ca51a5f7506ecb6de98a5207b759bf8a',
+  );
+
+  jest.spyOn(contract, 'call').mockResolvedValueOnce(0n);
+  jest.spyOn(contract, 'call').mockResolvedValueOnce({ stark: [1n] });
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(true);
+
+  const seed = accountSupport.getSeedFromSignature([
+    '0x1', // Signer type
+    '0x2', // R
+    '0x3', // S
+  ]);
+  expect(seed).toBe('0x2');
+});
+
 test('Unknown class hash', async () => {
   const { accountSupport } = setup('0x0000');
 
