@@ -6,8 +6,6 @@ import type { ParadexConfig } from './config.js';
 import type { ParaclearProvider } from './paraclear-provider.js';
 import type { Hex } from './types.js';
 
-const MAX_FEE = BigNumber('5e17'); // 5e17 WEI = 0.5 ETH
-
 interface GetBalanceParams {
   readonly config: ParadexConfig;
   readonly provider: Pick<ParaclearProvider, 'callContract'>;
@@ -61,7 +59,7 @@ export async function getTokenBalance(
     throw new Error('Failed to get token balance');
   }
 
-  const valueBn = new BigNumber(value as string);
+  const valueBn = new BigNumber(value);
   if (valueBn.isNaN()) {
     throw new Error('Failed to parse token balance');
   }
@@ -103,7 +101,7 @@ export async function getSocializedLossFactor(
     throw new Error('Failed to get socialized loss factor');
   }
 
-  const valueBn = new BigNumber(value as string);
+  const valueBn = new BigNumber(value);
   if (valueBn.isNaN()) {
     throw new Error('Failed to parse socialized loss factor');
   }
@@ -234,6 +232,36 @@ interface TransactionResult {
   readonly hash: Hex;
 }
 
+function getResourceBounds(): Starknet.ResourceBounds {
+  // ensure unique txn hash on subsequent calls via `intNoise`
+  const maxL1Gas = BigNumber('0x989680').plus(intNoise(10_000)); // 10M gas units
+  const maxL1DAGas = BigNumber('0x989680').plus(intNoise(10_000)); // 10M gas units
+  const maxL2Gas = BigNumber('0x5f5e100').plus(intNoise(10_000)); // 100M gas units
+
+  const maxL1GasPrice = '0x2540be400'; // 10B WEI per gas unit
+  const maxL1DAGasPrice = '0x2540be400'; // 10B WEI per gas unit
+  const maxL2GasPrice = '0x2540be400'; // 10B WEI per gas unit
+
+  const maxL1GasHex = `0x${maxL1Gas.toString(16)}`;
+  const maxL1DAGasHex = `0x${maxL1DAGas.toString(16)}`;
+  const maxL2GasHex = `0x${maxL2Gas.toString(16)}`;
+
+  return {
+    l1_gas: {
+      max_amount: maxL1GasHex,
+      max_price_per_unit: maxL1GasPrice,
+    },
+    l1_data_gas: {
+      max_amount: maxL1DAGasHex,
+      max_price_per_unit: maxL1DAGasPrice,
+    },
+    l2_gas: {
+      max_amount: maxL2GasHex,
+      max_price_per_unit: maxL2GasPrice,
+    },
+  };
+}
+
 /**
  * Withdraw funds from Paraclear for the given account.
  *
@@ -261,9 +289,7 @@ export async function withdraw(
     params.config.paraclearDecimals,
   );
 
-  // ensure unique txn hash on subsequent calls via `intNoise`
-  const maxFee = MAX_FEE.plus(intNoise(10_000));
-
+  const resourceBounds = getResourceBounds();
   const result = await params.account.execute(
     [
       {
@@ -275,8 +301,7 @@ export async function withdraw(
         ? params.bridgeCall
         : [params.bridgeCall]),
     ],
-    undefined,
-    { maxFee: maxFee.toString() },
+    { resourceBounds },
   );
 
   return { hash: result.transaction_hash as Hex };
