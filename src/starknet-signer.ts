@@ -126,10 +126,10 @@ async function buildAccountContract(
   accountAddress: string,
 ): Promise<Starknet.Contract> {
   const accountClass = await provider.getClassAt(accountAddress);
-  const contract = new Starknet.Contract(
-    accountClass.abi,
-    accountAddress,
-    provider,
-  );
+  const contract = new Starknet.Contract({
+    abi: accountClass.abi,
+    address: accountAddress,
+    providerOrAccount: provider,
+  });
   return contract;
 }
