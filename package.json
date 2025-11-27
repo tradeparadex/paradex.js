@@ -53,5 +53,11 @@
     "ts-jest": "^29.4.5",
     "tsx": "^4.20.6",
     "typescript": "~5.9.3"
+  },
+  "resolutions": {
+    "brace-expansion": "^2.0.2",
+    "js-yaml": "^4.1.1",
+    "micromatch": "^4.0.8",
+    "@babel/helpers": "^7.26.10"
   }
 }
