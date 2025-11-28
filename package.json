@@ -11,7 +11,8 @@
     "build": "tsc",
     "lint": "prettier --check . && eslint .",
     "format": "prettier --write .",
-    "test": "jest"
+    "test": "jest",
+    "example:withdrawal": "tsx examples/withdrawal-node.ts"
   },
   "lint-staged": {
     "**/*": "prettier --write --ignore-unknown"
@@ -28,28 +29,35 @@
   },
   "dependencies": {
     "@starkware-industries/starkware-crypto-utils": "^0.2.1",
-    "bignumber.js": "^9.1.2",
-    "starknet": "^7.6.4"
+    "bignumber.js": "^9.3.1",
+    "starknet": "^8.6.0"
   },
   "devDependencies": {
-    "@ianvs/prettier-plugin-sort-imports": "^4.2.1",
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
     "@types/elliptic": "^6.4.18",
-    "@types/jest": "^29.5.12",
+    "@types/jest": "^29.5.14",
     "@typescript-eslint/eslint-plugin": "6.21.0",
     "@typescript-eslint/parser": "6.21.0",
-    "eslint": "^8.57.0",
+    "eslint": "^8.57.1",
     "eslint-config-love": "^43.1.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-import": "^2.29.1",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-n": "^16.6.2 ",
     "eslint-plugin-promise": "^6.0.0",
-    "ethers": "^6.11.1",
-    "husky": "^9.0.11",
+    "ethers": "^6.15.0",
+    "husky": "^9.1.7",
     "jest": "^29.7.0",
-    "jest-ts-webcompat-resolver": "^1.0.0",
-    "lint-staged": "^15.2.2",
-    "prettier": "3.2.5",
-    "ts-jest": "^29.1.2",
-    "typescript": "~5.3.3"
+    "jest-ts-webcompat-resolver": "^1.0.1",
+    "lint-staged": "^15.5.2",
+    "prettier": "3.6.2",
+    "ts-jest": "^29.4.5",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.3"
+  },
+  "resolutions": {
+    "brace-expansion": "^2.0.2",
+    "js-yaml": "^4.1.1",
+    "micromatch": "^4.0.8",
+    "@babel/helpers": "^7.26.10"
   }
 }

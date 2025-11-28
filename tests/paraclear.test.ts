@@ -206,6 +206,27 @@ describe('withdraw', () => {
       signer,
     });
 
+    const mockEstimateInvokeFee = jest
+      .spyOn(mockAccount, 'estimateInvokeFee')
+      .mockResolvedValueOnce({
+        overall_fee: BigInt(1000),
+        unit: 'WEI' as const,
+        resourceBounds: {
+          l1_gas: {
+            max_amount: BigInt(1000),
+            max_price_per_unit: BigInt(1),
+          },
+          l1_data_gas: {
+            max_amount: BigInt(1000),
+            max_price_per_unit: BigInt(1),
+          },
+          l2_gas: {
+            max_amount: BigInt(1000),
+            max_price_per_unit: BigInt(1),
+          },
+        },
+      });
+
     const mockExecute = jest
       .spyOn(mockAccount, 'execute')
       .mockResolvedValueOnce({
@@ -230,8 +251,10 @@ describe('withdraw', () => {
       throw new Error('Token USDC is not defined');
     }
 
+    expect(mockEstimateInvokeFee).toHaveBeenCalledTimes(1);
     expect(mockExecute).toHaveBeenCalledTimes(1);
     const mockExecuteArg1 = mockExecute.mock.calls[0]?.[0];
+    const mockExecuteArg2 = mockExecute.mock.calls[0]?.[1];
     expect(mockExecuteArg1).toStrictEqual([
       {
         contractAddress:
@@ -241,6 +264,7 @@ describe('withdraw', () => {
       },
       bridgeCall,
     ]);
+    expect(mockExecuteArg2).toHaveProperty('resourceBounds');
 
     expect(result).toEqual({ hash: '0xabcdef123456' });
   });
@@ -258,6 +282,27 @@ describe('withdraw', () => {
       config,
       signer,
     });
+
+    const mockEstimateInvokeFee = jest
+      .spyOn(mockAccount, 'estimateInvokeFee')
+      .mockResolvedValueOnce({
+        overall_fee: BigInt(1000),
+        unit: 'WEI' as const,
+        resourceBounds: {
+          l1_gas: {
+            max_amount: BigInt(1000),
+            max_price_per_unit: BigInt(1),
+          },
+          l1_data_gas: {
+            max_amount: BigInt(1000),
+            max_price_per_unit: BigInt(1),
+          },
+          l2_gas: {
+            max_amount: BigInt(1000),
+            max_price_per_unit: BigInt(1),
+          },
+        },
+      });
 
     const mockExecute = jest
       .spyOn(mockAccount, 'execute')
@@ -290,8 +335,10 @@ describe('withdraw', () => {
       throw new Error('Token USDC is not defined');
     }
 
+    expect(mockEstimateInvokeFee).toHaveBeenCalledTimes(1);
     expect(mockExecute).toHaveBeenCalledTimes(1);
     const mockExecuteArg1 = mockExecute.mock.calls[0]?.[0];
+    const mockExecuteArg2 = mockExecute.mock.calls[0]?.[1];
     expect(mockExecuteArg1).toStrictEqual([
       {
         contractAddress:
@@ -301,6 +348,7 @@ describe('withdraw', () => {
       },
       ...bridgeCall,
     ]);
+    expect(mockExecuteArg2).toHaveProperty('resourceBounds');
 
     expect(result).toEqual({ hash: '0xabcdef123456' });
   });

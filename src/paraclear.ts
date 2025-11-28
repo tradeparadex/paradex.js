@@ -232,36 +232,6 @@ interface TransactionResult {
   readonly hash: Hex;
 }
 
-function getResourceBounds(): Starknet.ResourceBounds {
-  // ensure unique txn hash on subsequent calls via `intNoise`
-  const maxL1Gas = BigNumber('0x989680').plus(intNoise(10_000)); // 10M gas units
-  const maxL1DAGas = BigNumber('0x989680').plus(intNoise(10_000)); // 10M gas units
-  const maxL2Gas = BigNumber('0x5f5e100').plus(intNoise(10_000)); // 100M gas units
-
-  const maxL1GasPrice = '0x2540be400'; // 10B WEI per gas unit
-  const maxL1DAGasPrice = '0x2540be400'; // 10B WEI per gas unit
-  const maxL2GasPrice = '0x2540be400'; // 10B WEI per gas unit
-
-  const maxL1GasHex = `0x${maxL1Gas.toString(16)}`;
-  const maxL1DAGasHex = `0x${maxL1DAGas.toString(16)}`;
-  const maxL2GasHex = `0x${maxL2Gas.toString(16)}`;
-
-  return {
-    l1_gas: {
-      max_amount: maxL1GasHex,
-      max_price_per_unit: maxL1GasPrice,
-    },
-    l1_data_gas: {
-      max_amount: maxL1DAGasHex,
-      max_price_per_unit: maxL1DAGasPrice,
-    },
-    l2_gas: {
-      max_amount: maxL2GasHex,
-      max_price_per_unit: maxL2GasPrice,
-    },
-  };
-}
-
 /**
  * Withdraw funds from Paraclear for the given account.
  *
@@ -289,20 +259,24 @@ export async function withdraw(
     params.config.paraclearDecimals,
   );
 
-  const resourceBounds = getResourceBounds();
-  const result = await params.account.execute(
-    [
-      {
-        contractAddress: params.config.paraclearAddress,
-        entrypoint: 'withdraw',
-        calldata: [token.l2TokenAddress, chainAmountBn.toString()],
-      },
-      ...(Array.isArray(params.bridgeCall)
-        ? params.bridgeCall
-        : [params.bridgeCall]),
-    ],
-    { resourceBounds },
-  );
+  const txnInvocation = [
+    {
+      contractAddress: params.config.paraclearAddress,
+      entrypoint: 'withdraw',
+      calldata: [token.l2TokenAddress, chainAmountBn.toString()],
+    },
+    ...(Array.isArray(params.bridgeCall)
+      ? params.bridgeCall
+      : [params.bridgeCall]),
+  ];
+
+  // Estimate fees to get proper resource bounds
+  const fees = await params.account.estimateInvokeFee(txnInvocation);
+
+  // Use the resource bounds from fee estimation
+  const result = await params.account.execute(txnInvocation, {
+    resourceBounds: fees.resourceBounds,
+  });
 
   return { hash: result.transaction_hash as Hex };
 }
@@ -315,12 +289,4 @@ function toChainSize(size: string, decimals: number): BigNumber {
   return new BigNumber(size)
     .times(10 ** decimals)
     .integerValue(BigNumber.ROUND_FLOOR);
-}
-
-/**
- * Generates a pseudorandom integer between 0 and `max`.
- * @param max Maximum value for the noise.
- */
-function intNoise(max: number): number {
-  return Math.round(Math.random() * max);
 }

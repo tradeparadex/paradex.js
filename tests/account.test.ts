@@ -59,11 +59,11 @@ describe('create account from starknet signer', () => {
 
     for (const testCase of testCases) {
       const snProvider = createMockProvider();
-      const snAccount = new Starknet.Account(
-        snProvider,
-        testCase.snAddress,
-        testCase.snPrivateKey,
-      );
+      const snAccount = new Starknet.Account({
+        provider: snProvider,
+        address: testCase.snAddress,
+        signer: testCase.snPrivateKey,
+      });
 
       jest
         .spyOn(snProvider, 'getClassHashAt')

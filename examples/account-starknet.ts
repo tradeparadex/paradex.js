@@ -17,7 +17,11 @@ const paraclearProvider = new Paradex.ParaclearProvider.DefaultProvider(config);
 
 // 3.1 Get hold of user's Starknet account
 const snProvider = new Starknet.RpcProvider();
-const snAccount = new Starknet.Account(snProvider, '0x1234', '0x5678');
+const snAccount = new Starknet.Account({
+  provider: snProvider,
+  address: '0x1234',
+  signer: '0x5678',
+});
 
 // 3.2 Initialize Paradex account with config and Starknet account
 const paradexAccount = await Paradex.Account.fromStarknetAccount({
