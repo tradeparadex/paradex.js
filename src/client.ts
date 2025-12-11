@@ -19,6 +19,7 @@ export interface CreateClientFromStarknetAccountParams {
   readonly config: ParadexConfig;
   readonly account: Starknet.AccountInterface;
   readonly starknetProvider?: Starknet.ProviderInterface;
+  readonly rpcUrl?: string;
 }
 
 export interface TokenBalance {
@@ -91,12 +92,14 @@ export class ParadexClient {
     config,
     account,
     starknetProvider,
+    rpcUrl,
   }: CreateClientFromStarknetAccountParams): Promise<ParadexClient> {
     // Derive credentials internally (privateKey never exposed)
     const credentials = await deriveFromStarknetAccount({
       config,
       account,
       starknetProvider,
+      rpcUrl,
     });
 
     // Create authenticated provider

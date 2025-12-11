@@ -86,12 +86,13 @@ export async function getAccountSupport(
 }
 
 const RPC_NODES_MAINNET: readonly string[] = [
-  'https://starknet-mainnet.public.blastapi.io',
-  'https://free-rpc.nethermind.io/mainnet-juno',
+  'https://rpc.starknet.lava.build/rpc/v0_9',
+  'https://api-starknet-mainnet.n.dwellir.com/79e509c1-b94b-4146-ac66-efdc56786415/rpc/v0_9',
 ];
 const RPC_NODES_TESTNET: readonly string[] = [
-  'https://starknet-sepolia.public.blastapi.io',
-  'https://free-rpc.nethermind.io/sepolia-juno',
+  'https://rpc.starknet-testnet.lava.build/rpc/v0_9',
+  'https://api-starknet-sepolia.n.dwellir.com/79e509c1-b94b-4146-ac66-efdc56786415/rpc/v0_9',
+  'https://starknet.api.onfinality.io/public',
 ];
 
 export function getPublicProvider(chainId: string): Starknet.ProviderInterface {

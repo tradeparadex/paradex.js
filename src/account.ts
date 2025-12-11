@@ -82,6 +82,7 @@ interface DeriveFromStarknetAccountParams {
   readonly config: ParadexConfig;
   readonly account: Starknet.AccountInterface;
   readonly starknetProvider?: Starknet.ProviderInterface;
+  readonly rpcUrl?: string;
 }
 
 /**
@@ -94,15 +95,21 @@ export async function deriveFromStarknetAccount({
   config,
   account,
   starknetProvider,
+  rpcUrl,
 }: DeriveFromStarknetAccountParams): Promise<AccountCredentials> {
   const starkKeyTypedData = starknetSigner.buildStarknetStarkKeyTypedData(
     config.starknetChainId,
   );
 
+  const provider =
+    starknetProvider ??
+    (rpcUrl != null
+      ? new Starknet.RpcProvider({ nodeUrl: rpcUrl })
+      : starknetSigner.getPublicProvider(config.starknetChainId));
+
   const accountSupport = await starknetSigner.getAccountSupport(
     account,
-    starknetProvider ??
-      starknetSigner.getPublicProvider(config.starknetChainId),
+    provider,
   );
   const signature = await account.signMessage(starkKeyTypedData);
   const additionalSignature = await account.signMessage(starkKeyTypedData);
@@ -130,6 +137,7 @@ interface FromStarknetAccountParams {
   readonly config: ParadexConfig;
   readonly account: Starknet.AccountInterface;
   readonly starknetProvider?: Starknet.ProviderInterface;
+  readonly rpcUrl?: string;
 }
 
 /**
@@ -142,11 +150,13 @@ export async function fromStarknetAccount({
   config,
   account,
   starknetProvider,
+  rpcUrl,
 }: FromStarknetAccountParams): Promise<Account> {
   const credentials = await deriveFromStarknetAccount({
     config,
     account,
     starknetProvider,
+    rpcUrl,
   });
   return new Starknet.Account({
     provider,
