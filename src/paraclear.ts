@@ -45,12 +45,9 @@ export async function getTokenBalance(
     {
       contractAddress: params.config.paraclearAddress,
       entrypoint: 'getTokenAssetBalance',
-      calldata: Starknet.CallData.compile([
-        params.account.address,
-        token.l2TokenAddress,
-      ]),
+      calldata: [params.account.address, token.l2TokenAddress],
     },
-    'latest',
+    Starknet.BlockTag.LATEST,
   );
 
   const value = result?.[0];
@@ -69,6 +66,82 @@ export async function getTokenBalance(
   const sizeBn = fromChainSize(chainSizeBn, params.config.paraclearDecimals);
 
   return { size: sizeBn.toString() };
+}
+
+interface GetMaxWithdrawParams {
+  readonly config: ParadexConfig;
+  readonly provider: Pick<ParaclearProvider, 'callContract'>;
+  /**
+   * Account to check.
+   */
+  readonly account: Account;
+  /**
+   * Token symbol.
+   * @example 'USDC'
+   */
+  readonly token: string;
+}
+
+interface GetMaxWithdrawResult {
+  /**
+   * The maximum amount the user can withdraw (accounting for socialized loss).
+   * If socialized loss factor is 0, this equals the balance.
+   * Decimal string.
+   * @example '950.475'
+   */
+  readonly amount: string;
+  /**
+   * The maxWithdrawable amount, converted to be used in chain calls,
+   * using the Paraclear decimals.
+   * @example '950475000000'
+   */
+  readonly amountChain: string;
+}
+
+/**
+ * Get the maximum withdrawable amount for a token, accounting for socialized loss.
+ * This calls the `max_withdraw` contract method which returns the actual withdrawable amount.
+ */
+export async function getMaxWithdraw(
+  params: GetMaxWithdrawParams,
+): Promise<GetMaxWithdrawResult> {
+  const token = params.config.bridgedTokens[params.token];
+
+  if (token == null) {
+    throw new Error(`Token ${params.token} is not supported`);
+  }
+
+  // Call max_withdraw contract method (returns max withdrawable amount accounting for socialized loss)
+  const result = await params.provider.callContract(
+    {
+      contractAddress: params.config.paraclearAddress,
+      entrypoint: 'max_withdraw',
+      calldata: [params.account.address, token.l2TokenAddress],
+    },
+    Starknet.BlockTag.PRE_CONFIRMED,
+  );
+
+  const value = result?.[0];
+
+  if (value == null) {
+    throw new Error('Failed to get max withdraw amount');
+  }
+
+  const valueBn = new BigNumber(value);
+  if (valueBn.isNaN()) {
+    throw new Error('Failed to parse max withdraw amount');
+  }
+
+  const chainMaxWithdrawBn = valueBn;
+  const maxWithdrawable = fromChainSize(
+    chainMaxWithdrawBn,
+    params.config.paraclearDecimals,
+  );
+
+  return {
+    amount: maxWithdrawable.toString(),
+    amountChain: chainMaxWithdrawBn.toString(),
+  };
 }
 
 interface GetSocializedLossFactorParams {

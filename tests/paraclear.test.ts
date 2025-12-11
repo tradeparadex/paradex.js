@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { fromEthSigner } from '../src/account';
 import { ethersSignerAdapter } from '../src/ethereum-signer';
 import {
+  getMaxWithdraw,
   getReceivableAmount,
   getSocializedLossFactor,
   getTokenBalance,
@@ -67,6 +68,84 @@ describe('getBalance', () => {
     });
 
     await expect(result).rejects.toThrow('Failed to parse token balance');
+  });
+});
+
+describe('getMaxWithdraw', () => {
+  test('should return the max withdrawable amount', async () => {
+    const mockProvider = { callContract: jest.fn() };
+    mockProvider.callContract.mockResolvedValueOnce(['9500000000']);
+
+    const result = await getMaxWithdraw({
+      config: configFactory(),
+      provider: mockProvider,
+      account: { address: '0x123456789' } as any,
+      token: 'USDC',
+    });
+
+    expect(result).toEqual({
+      amount: '95',
+      amountChain: '9500000000',
+    });
+  });
+
+  test('should throw an error if token is not supported', async () => {
+    const mockProvider = { callContract: jest.fn() };
+    mockProvider.callContract.mockResolvedValueOnce(['9500000000']);
+
+    const result = getMaxWithdraw({
+      config: configFactory(),
+      provider: mockProvider,
+      account: { address: '0x123456789' } as any,
+      token: 'ASDF',
+    });
+
+    await expect(result).rejects.toThrow('Token ASDF is not supported');
+  });
+
+  test('should throw an error if calling the contract returns no value', async () => {
+    const mockProvider = { callContract: jest.fn() };
+    mockProvider.callContract.mockResolvedValueOnce([]);
+
+    const result = getMaxWithdraw({
+      config: configFactory(),
+      provider: mockProvider,
+      account: { address: '0x123456789' } as any,
+      token: 'USDC',
+    });
+
+    await expect(result).rejects.toThrow('Failed to get max withdraw amount');
+  });
+
+  test('should throw an error if max withdraw parsing fails', async () => {
+    const mockProvider = { callContract: jest.fn() };
+    mockProvider.callContract.mockResolvedValueOnce(['not a number']);
+
+    const result = getMaxWithdraw({
+      config: configFactory(),
+      provider: mockProvider,
+      account: { address: '0x123456789' } as any,
+      token: 'USDC',
+    });
+
+    await expect(result).rejects.toThrow('Failed to parse max withdraw amount');
+  });
+
+  test('should handle zero max withdraw', async () => {
+    const mockProvider = { callContract: jest.fn() };
+    mockProvider.callContract.mockResolvedValueOnce(['0']);
+
+    const result = await getMaxWithdraw({
+      config: configFactory(),
+      provider: mockProvider,
+      account: { address: '0x123456789' } as any,
+      token: 'USDC',
+    });
+
+    expect(result).toEqual({
+      amount: '0',
+      amountChain: '0',
+    });
   });
 });
 
