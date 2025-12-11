@@ -1,25 +1,35 @@
-import * as _Account from './account.js';
+import * as _Client from './client.js';
 import * as _Config from './config.js';
 import * as _Signer from './ethereum-signer.js';
-import * as _ParaclearProvider from './paraclear-provider.js';
-import * as _Paraclear from './paraclear.js';
 
-export const Config = { fetchConfig: _Config.fetchConfig };
-
-export const Account = {
-  fromEthSigner: _Account.fromEthSigner,
-  fromStarknetAccount: _Account.fromStarknetAccount,
+// Recommended: High-level client interface
+export const Client = {
+  fromEthSigner: async (params: _Client.CreateClientFromEthSignerParams) =>
+    await _Client.ParadexClient.createFromEthSigner(params),
+  fromStarknetAccount: async (
+    params: _Client.CreateClientFromStarknetAccountParams,
+  ) => await _Client.ParadexClient.createFromStarknetAccount(params),
 };
 
-export const Signer = { ethersSignerAdapter: _Signer.ethersSignerAdapter };
-
-export const ParaclearProvider = {
-  DefaultProvider: _ParaclearProvider.DefaultProvider,
+export const Config = {
+  fetch: _Config.fetchConfig,
 };
 
-export const Paraclear = {
-  getTokenBalance: _Paraclear.getTokenBalance,
-  getSocializedLossFactor: _Paraclear.getSocializedLossFactor,
-  getReceivableAmount: _Paraclear.getReceivableAmount,
-  withdraw: _Paraclear.withdraw,
+export const Signer = {
+  fromEthers: _Signer.ethersSignerAdapter,
 };
+
+// Export types for TypeScript users
+export type {
+  ParadexClient,
+  CreateClientFromEthSignerParams,
+  CreateClientFromStarknetAccountParams,
+  TokenBalance,
+  SocializedLossFactor,
+  ReceivableAmount,
+  MaxWithdraw,
+  WithdrawResult,
+} from './client.js';
+export type { ParadexConfig } from './config.js';
+export type { EthereumSigner } from './ethereum-signer.js';
+export type { Hex } from './types.js';
