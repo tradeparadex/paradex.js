@@ -8,92 +8,61 @@ declare global {
   }
 }
 
+const AMOUNT = '200'; // USDC amount to withdraw
+
 // Flow summary:
-//  1. Fetch Paradex config
-//  2. Create Paraclear provider
-//  3. Derive Paradex account from Ethereum signer
-//  4. Get user's USDC balance
-//  5. Withdraw USDC
+//  1. Fetch config
+//  2. Create client
+//  3. Get balance
+//  4. Withdraw
 
-// 1. Fetch Paradex config for the relevant environment
-const config = await Paradex.Config.fetchConfig('testnet'); // "testnet" | "mainnet"
+// 1. Fetch config
+const config = await Paradex.Config.fetch('testnet'); // "testnet" | "mainnet"
+console.log('RPC URL:', config.paradexFullNodeRpcUrl);
 
-// 2. Create Paraclear provider (override RPC URL to use v0_9)
-const configWithV09 = {
-  ...config,
-  paradexFullNodeRpcUrl: config.paradexFullNodeRpcUrl.replace('/v0_8', '/v0_9'),
-};
-const paraclearProvider = new Paradex.ParaclearProvider.DefaultProvider(
-  configWithV09,
-);
-
-// 3. Derive Paradex account from Ethereum signer
-
-//  3.1. Get ethers signer (example with injected provider)
+// 2. Create client from Ethereum wallet
 if (window.ethereum == null) throw new Error('Ethereum provider not found');
 const ethersProvider = new ethers.BrowserProvider(window.ethereum);
 const ethersSigner = await ethersProvider.getSigner();
+const signer = Paradex.Signer.fromEthers(ethersSigner);
 
-//  3.2. Create Ethereum signer based on ethers signer
-const signer = Paradex.Signer.ethersSignerAdapter(ethersSigner);
-
-//  3.3. Initialize the account with config and Ethereum signer
-const paradexAccount = await Paradex.Account.fromEthSigner({
-  provider: paraclearProvider,
-  config,
-  signer,
-});
+const client = await Paradex.Client.fromEthSigner({ config, signer });
 
 console.log(`Ethereum address: ${ethersSigner.address}`);
-console.log(`Paradex address: ${paradexAccount.address}`);
+console.log(`Paradex address: ${client.getAddress()}`);
 
-// 4. Get user's USDC balance
-const getBalanceResult = await Paradex.Paraclear.getTokenBalance({
-  provider: paraclearProvider, // account can be passed as the provider
-  config,
-  account: paradexAccount,
-  token: 'USDC',
-});
-console.log(`Amount: ${getBalanceResult.size}`);
+// 3. Get user's USDC balance
+const balance = await client.getTokenBalance('USDC');
+console.log(`Balance: ${balance.size}`);
 
-// 5. Withdrawal
+// 3. Get max withdrawable amount
+const withdrawInfo = await client.getMaxWithdraw('USDC');
+console.log(`Max withdraw: ${withdrawInfo.amountChain} USDC`);
 
-//  5.1. Get receivable amount and socialized loss factor
-const receivableAmountResult = await Paradex.Paraclear.getReceivableAmount({
-  provider: paraclearProvider, // account can be passed as the provider
-  config,
-  token: 'USDC',
-  amount: '50.4',
-});
+// 4. Withdrawal
 
-//  5.2. Check if socialized loss factor is not 0
-if (Number(receivableAmountResult.socializedLossFactor) !== 0) {
+//  4.1. Get receivable amount and socialized loss factor
+const receivable = await client.getReceivableAmount('USDC', AMOUNT);
+
+//  4.2. Check if socialized loss factor is not 0
+if (Number(receivable.socializedLossFactor) !== 0) {
   // Display a warning to the user, suggesting to withdraw a smaller
   // amount or to wait for the socialized loss factor to decrease.
   console.log(
-    `Socialized loss is active. You will receive` +
-      ` ${receivableAmountResult.receivableAmount} USDC.`,
+    `Socialized loss is active. You will receive ${receivable.receivableAmount} USDC.`,
   );
 }
 
-//  5.3. Request withdrawal (batches 1. withdraw from Paraclear contract
+//  4.3. Request withdrawal (batches 1. withdraw from Paraclear contract
 //  and 2. deposit to the bridge in `bridgeCall`) for atomic transaction.
 //  Note that the requested withdraw amount can be different from the amount
 //  that will be received if socialized loss is active. Use the receivable
 //  amount to make the bridge call.
-const withdrawResult = await Paradex.Paraclear.withdraw({
-  config,
-  account: paradexAccount,
-  token: 'USDC',
-  amount: '50.4',
-  bridgeCall: {
-    contractAddress: '0x...',
-    entrypoint: 'deposit',
-    calldata: ['...', receivableAmountResult.receivableAmountChain],
-  },
-});
-console.log(withdrawResult); // { hash: '0x...' }
+console.log(`Requesting withdrawal of ${AMOUNT} USDC...`);
+const withdrawResult = await client.withdraw('USDC', AMOUNT, []);
+console.log(`Transaction hash: ${withdrawResult.hash}`);
 
-//  5.4. Monitor batch withdrawal transaction to completion
-//  https://www.starknetjs.com/docs/api/classes/providerinterface/#waitfortransaction
-await paraclearProvider.waitForTransaction(withdrawResult.hash);
+//  4.4. Monitor batch withdrawal transaction to completion
+console.log('Waiting for transaction to complete...');
+await client.waitForTransaction(withdrawResult.hash);
+console.log('Transaction completed!');
