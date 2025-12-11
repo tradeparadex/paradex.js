@@ -495,6 +495,158 @@ test('Braavos v1.2.0 single stark signer [signerType,r,s]', async () => {
   expect(seed).toBe('0x2');
 });
 
+test('Keplr OZ v0.17.0', async () => {
+  const { accountSupport } = setup(
+    '0x06cc43e9a4a0036cd09d8a997c61df18d7e4fa9459c907a4664b4e56b679d187',
+  );
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(true);
+
+  // Keplr signature has 5 segments: [r.low, r.high, s.low, s.high, v]
+  // Uint256 reconstruction: r = high * 2^128 + low
+  const seed = accountSupport.getSeedFromSignature([
+    '0x1', // r.low
+    '0x2', // r.high
+    '0x3', // s.low
+    '0x4', // s.high
+    '0x5', // v
+  ]);
+  // r = 0x2 * 2^128 + 0x1 = 0x200000000000000000000000000000001
+  expect(seed).toBe('0x200000000000000000000000000000001');
+});
+
+test('Keplr OZ v0.17.0 signature with larger values', async () => {
+  const { accountSupport } = setup(
+    '0x06cc43e9a4a0036cd09d8a997c61df18d7e4fa9459c907a4664b4e56b679d187',
+  );
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(true);
+
+  // Test with more realistic Uint256 values
+  const seed = accountSupport.getSeedFromSignature([
+    '0xffffffffffffffffffffffffffffffff', // r.low (max 128-bit)
+    '0x1', // r.high
+    '0x0', // s.low
+    '0x0', // s.high
+    '0x1b', // v
+  ]);
+  // r = 0x1 * 2^128 + 0xffffffffffffffffffffffffffffffff = 0x1ffffffffffffffffffffffffffffffff
+  expect(seed).toBe('0x1ffffffffffffffffffffffffffffffff');
+});
+
+test('Keplr OZ v0.17.0 invalid signature length', async () => {
+  const { accountSupport } = setup(
+    '0x06cc43e9a4a0036cd09d8a997c61df18d7e4fa9459c907a4664b4e56b679d187',
+  );
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(true);
+
+  expect(() => {
+    accountSupport.getSeedFromSignature([
+      '0x1', // r.low
+      '0x2', // r.high
+      '0x3', // s.low
+      // missing s.high and v
+    ]);
+  }).toThrow('Keplr signature must have 5 segments');
+});
+
+test('Xverse Argent v0.4.0 with Starknet signer, compact signature', async () => {
+  const { accountSupport, contract } = setup(
+    '0x0663fc01a0dbe1bacc4cd2a4c856eb9784b255a20988aa33d4d52b6fc20bd024',
+  );
+
+  jest
+    .spyOn(contract, 'call')
+    .mockResolvedValue(new Starknet.CairoCustomEnum({ Starknet: {} }));
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(true);
+
+  const seed = accountSupport.getSeedFromSignature([
+    '0x1', // R
+    '0x2', // S
+  ]);
+  expect(seed).toBe('0x1');
+});
+
+test('Xverse Argent v0.4.0 with Starknet signer, default signature', async () => {
+  const { accountSupport, contract } = setup(
+    '0x0663fc01a0dbe1bacc4cd2a4c856eb9784b255a20988aa33d4d52b6fc20bd024',
+  );
+
+  jest
+    .spyOn(contract, 'call')
+    .mockResolvedValue(new Starknet.CairoCustomEnum({ Starknet: {} }));
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(true);
+
+  const seed = accountSupport.getSeedFromSignature([
+    '0x1', // Signatures count
+    '0x2', // Signer type
+    '0x3', // Public key
+    '0x4', // R
+    '0x5', // S
+  ]);
+  expect(seed).toBe('0x4');
+});
+
+test('Xverse Argent v0.4.0 with Secp256k1 signer', async () => {
+  const { accountSupport, contract } = setup(
+    '0x0663fc01a0dbe1bacc4cd2a4c856eb9784b255a20988aa33d4d52b6fc20bd024',
+  );
+
+  jest
+    .spyOn(contract, 'call')
+    .mockResolvedValue(new Starknet.CairoCustomEnum({ Secp256k1: {} }));
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(false);
+});
+
+test('Xverse Argent v0.4.0 with Secp256r1 signer', async () => {
+  const { accountSupport, contract } = setup(
+    '0x0663fc01a0dbe1bacc4cd2a4c856eb9784b255a20988aa33d4d52b6fc20bd024',
+  );
+
+  jest
+    .spyOn(contract, 'call')
+    .mockResolvedValue(new Starknet.CairoCustomEnum({ Secp256r1: {} }));
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(false);
+});
+
+test('Xverse Argent v0.4.0 with Eip191 signer', async () => {
+  const { accountSupport, contract } = setup(
+    '0x0663fc01a0dbe1bacc4cd2a4c856eb9784b255a20988aa33d4d52b6fc20bd024',
+  );
+
+  jest
+    .spyOn(contract, 'call')
+    .mockResolvedValue(new Starknet.CairoCustomEnum({ Eip191: {} }));
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(false);
+});
+
+test('Xverse Argent v0.4.0 with Webauthn signer', async () => {
+  const { accountSupport, contract } = setup(
+    '0x0663fc01a0dbe1bacc4cd2a4c856eb9784b255a20988aa33d4d52b6fc20bd024',
+  );
+
+  jest
+    .spyOn(contract, 'call')
+    .mockResolvedValue(new Starknet.CairoCustomEnum({ Webauthn: {} }));
+
+  const result = await accountSupport.check();
+  expect(result.ok).toBe(false);
+});
+
 test('Unknown class hash', async () => {
   const { accountSupport } = setup('0x0000');
 

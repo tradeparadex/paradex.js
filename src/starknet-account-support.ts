@@ -23,6 +23,10 @@ const BRAAVOS_V1_1_0_CLASS_HASH =
   '0x02c8c7e6fbcfb3e8e15a46648e8914c6aa1fc506fc1e7fb3d1e19630716174bc';
 const BRAAVOS_V1_2_0_CLASS_HASH =
   '0x03957f9f5a1cbfe918cedc2015c85200ca51a5f7506ecb6de98a5207b759bf8a';
+const KEPLR_OZ_V0_17_0_CLASS_HASH =
+  '0x06cc43e9a4a0036cd09d8a997c61df18d7e4fa9459c907a4664b4e56b679d187';
+const XVERSE_ARGENT_V0_4_0_CLASS_HASH =
+  '0x0663fc01a0dbe1bacc4cd2a4c856eb9784b255a20988aa33d4d52b6fc20bd024';
 
 type SignatureFormat =
   | 'argent-v0.3.0'
@@ -46,6 +50,7 @@ type SignatureFormat =
   | 'braavos-v1.1.0-multisig'
   | 'braavos-v1.2.0-multisig'
   | 'braavos-multi-owner-v1.0.0'
+  | 'keplr-oz-v0.17.0'
   | 'unknown';
 
 interface CheckResult {
@@ -78,7 +83,10 @@ export class AccountSupport {
       return 'argent-v0.3.1';
     }
 
-    if (this.testClassHash(ARGENT_V0_4_0_CLASS_HASH)) {
+    if (
+      this.testClassHash(ARGENT_V0_4_0_CLASS_HASH) ||
+      this.testClassHash(XVERSE_ARGENT_V0_4_0_CLASS_HASH)
+    ) {
       const ownerTypeResp = (await this.contract.call(
         'get_owner_type',
       )) as Starknet.CairoCustomEnum;
@@ -203,6 +211,10 @@ export class AccountSupport {
       return 'unknown';
     }
 
+    if (this.testClassHash(KEPLR_OZ_V0_17_0_CLASS_HASH)) {
+      return 'keplr-oz-v0.17.0';
+    }
+
     return 'unknown';
   }
 
@@ -216,6 +228,7 @@ export class AccountSupport {
       case 'braavos-v1.0.0-stark-signer':
       case 'braavos-v1.1.0-stark-signer':
       case 'braavos-v1.2.0-stark-signer':
+      case 'keplr-oz-v0.17.0':
         return { ok: true };
       case 'argent-v0.4.0-secp256k1-signer':
         return {
@@ -324,6 +337,22 @@ export class AccountSupport {
           return r;
         }
         throw new Error('Unsupported Braavos signature');
+      }
+
+      case 'keplr-oz-v0.17.0': {
+        if (segments.length !== 5) {
+          throw new Error('Keplr signature must have 5 segments');
+        }
+        const [rl, rh, _sl, _sh, _v] = segments;
+        if (rl == null || rh == null) {
+          throw new Error('Keplr signature is missing R segments');
+        }
+        // Combine r.low and r.high into a single hex value
+        // Uint256 = high * 2^128 + low
+        const lowBig = BigInt(rl);
+        const highBig = BigInt(rh);
+        const r = highBig * 2n ** 128n + lowBig;
+        return Starknet.num.toHex(r);
       }
 
       case 'argent-v0.4.0-secp256k1-signer':
