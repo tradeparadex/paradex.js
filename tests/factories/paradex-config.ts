@@ -3,7 +3,7 @@ import type { ParadexConfig } from '../../src/config';
 export function configFactory(): ParadexConfig {
   return {
     paradexFullNodeRpcUrl: 'https://example-fullnode-rpc-url.com',
-    paradexChainId: '0x505249564154455f534e5f504f54435f5345504f4c4941',
+    paradexChainId: 'PRIVATE_SN_POTC_SEPOLIA',
     ethereumChainId: '11155111',
     starknetChainId: 'SN_SEPOLIA',
     paraclearAccountHash:
