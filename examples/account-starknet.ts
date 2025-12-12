@@ -16,6 +16,8 @@ const snAccount = new Starknet.Account({
 const client = await Paradex.Client.fromStarknetAccount({
   config,
   account: snAccount,
+  // Optional: Provide custom Starknet RPC URL to skip using public provider
+  rpcUrl: 'https://rpc.starknet.lava.build/rpc/v0_9',
 });
 
 console.log(`Paradex address: ${client.getAddress()}`);
