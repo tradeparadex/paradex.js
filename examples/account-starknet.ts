@@ -3,7 +3,7 @@ import * as Starknet from 'starknet';
 import * as Paradex from '../src/index.js';
 
 // 1. Fetch config
-const config = await Paradex.Config.fetch('testnet'); // "testnet" | "mainnet"
+const config = await Paradex.Config.fetch('testnet'); // "testnet" | "prod"
 
 // 2. Create client from Starknet account
 const snProvider = new Starknet.RpcProvider();

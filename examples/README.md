@@ -241,7 +241,7 @@ const config = await Paradex.Config.fetch('testnet');
 ### Mainnet
 
 ```typescript
-const config = await Paradex.Config.fetch('mainnet');
+const config = await Paradex.Config.fetch('prod');
 ```
 
 ### Custom Environment

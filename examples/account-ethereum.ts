@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import * as Paradex from '../src/index.js';
 
 // 1. Fetch config
-const config = await Paradex.Config.fetch('testnet'); // "testnet" | "mainnet"
+const config = await Paradex.Config.fetch('testnet'); // "testnet" | "prod"
 
 // 2. Create client from Ethereum wallet
 const ethersProvider = new ethers.JsonRpcProvider(
