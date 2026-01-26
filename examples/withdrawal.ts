@@ -17,7 +17,7 @@ const AMOUNT = '200'; // USDC amount to withdraw
 //  4. Withdraw
 
 // 1. Fetch config
-const config = await Paradex.Config.fetch('testnet'); // "testnet" | "mainnet"
+const config = await Paradex.Config.fetch('testnet'); // "testnet" | "prod"
 console.log('RPC URL:', config.paradexFullNodeRpcUrl);
 
 // 2. Create client from Ethereum wallet
