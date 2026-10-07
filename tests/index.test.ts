@@ -7,6 +7,18 @@ import { configFactory } from './factories/paradex-config';
 import { createMockProvider } from './mocks/provider';
 
 describe('Paradex SDK exports', () => {
+  describe('Session', () => {
+    test('should export the connector, manager and helpers', () => {
+      for (const fn of Object.values(Paradex.Session)) {
+        expect(typeof fn).toBe('function');
+      }
+      expect(typeof Paradex.SessionConnector).toBe('function');
+      expect(typeof Paradex.SessionAccounts).toBe('function');
+      expect(typeof Paradex.SessionKey.generate).toBe('function');
+      expect(new Paradex.SessionApiError(401, {}).status).toBe(401);
+    });
+  });
+
   describe('SessionTypedData', () => {
     test('should export grant builders and hashing', () => {
       for (const fn of Object.values(Paradex.SessionTypedData)) {
