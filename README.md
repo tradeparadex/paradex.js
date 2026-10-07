@@ -235,6 +235,52 @@ const digest = Paradex.SessionTypedData.hashEip712(typedData);
 
 Grants are checked before signing. Reserved scopes (`withdraw:owner`, `trade:isolated`), lifetimes past the server caps, and builder grants that leave a limit unset throw a `SessionGrantError` with a `code`.
 
+### Sessions: trade with a session key (experimental)
+
+`SessionConnector` opens a session with **one** wallet prompt. The Stark session key is generated in the page and stored encrypted under a non-extractable WebCrypto key; the private key is decrypted only while signing. `SessionAccounts` then mints a JWT of at most 15 minutes per account the grant lists (the main account and any `subaccounts`), keeps one websocket per account, and routes requests by account. Sessions never use `on_behalf_of`. If the grant is revoked or expires, every account is dropped.
+
+```typescript
+const connector = new Paradex.SessionConnector({
+  environment: 'testnet',
+  paradexChain: config.paradexChainId,
+  // Default: the injected wallet. For MPC providers, use
+  // Paradex.Session.ownerSignerFromExternal({ chainId, sign }).
+  owner: Paradex.Session.ownerSignerFromEip1193({ provider: window.ethereum }),
+  storage: Paradex.Session.indexedDbStorage(),
+});
+
+const [existing] = await connector.restore();
+const session =
+  existing ??
+  (await connector.open({
+    account: '0x...',
+    subaccounts: ['0x...'],
+    scopes: ['trade'],
+    limits: { maxOrderNotional: '25000' },
+  }));
+
+const accounts = new Paradex.SessionAccounts({
+  session,
+  environment: 'testnet',
+  paradexChain: config.paradexChainId,
+  onDropped: (reason) => console.warn('Session ended:', reason.code),
+});
+await accounts.start();
+
+await accounts.placeOrder('0x...', {
+  market: 'BTC-USD-PERP',
+  side: 'BUY',
+  type: 'LIMIT',
+  size: '0.01',
+  price: '60000',
+});
+const unsubscribe = await accounts.subscribe('0x...', 'orders.ALL', (data) =>
+  console.log(data),
+);
+```
+
+> `POST /v2/sessions` is not live yet; the request shape may change before release.
+
 ## Best Practices
 
 ### 1. Environment Variables
