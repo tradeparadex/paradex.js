@@ -211,6 +211,30 @@ const result = await provider.callContract({
 });
 ```
 
+### Session Grant Typed Data (experimental)
+
+A session grant lets a wallet authorize a short-lived Stark session key to trade, within scopes and limits, without withdrawing. The SDK builds the grant and its typed data in both encodings: EIP-712 for EVM wallets, with domain `{ name: "Paradex Session", version: "1", chainId: <the wallet's current chain> }`, and SNIP-12 revision 1 for Stark owners.
+
+> The server side of sessions is not released yet. These APIs may change.
+
+```typescript
+const grant = Paradex.SessionTypedData.createGrant({
+  paradexChain: 'PRIVATE_SN_PARACLEAR_MAINNET',
+  environment: 'mainnet', // 'mainnet' | 'testnet' | 'nightly'
+  account: '0x...', // the owner's Paradex account
+  sessionKey: '0x...', // the session's Stark public key
+  scopes: ['trade'], // 'trade' | 'trade:rfq' | 'trade:block' | 'account:settings'
+  limits: { maxOrderNotional: '25000', markets: ['BTC-USD-PERP'] },
+  subaccounts: [], // sub-account addresses the session may also trade
+});
+
+const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+const typedData = Paradex.SessionTypedData.buildGrantEip712(grant, chainId);
+const digest = Paradex.SessionTypedData.hashEip712(typedData);
+```
+
+Grants are checked before signing. Reserved scopes (`withdraw:owner`, `trade:isolated`), lifetimes past the server caps, and builder grants that leave a limit unset throw a `SessionGrantError` with a `code`.
+
 ## Best Practices
 
 ### 1. Environment Variables
@@ -357,6 +381,20 @@ For a full React application example, see: [paradex-react-example](https://githu
 | Method                      | Description                  | Returns          |
 | --------------------------- | ---------------------------- | ---------------- |
 | `Signer.fromEthers(signer)` | Create signer from ethers.js | `EthereumSigner` |
+
+### SessionTypedData (experimental)
+
+| Method                                | Description                                      | Returns           |
+| ------------------------------------- | ------------------------------------------------ | ----------------- |
+| `createGrant(params)`                 | Build a canonical, validated `SessionGrant`      | `SessionGrant`    |
+| `buildGrantEip712(grant, chainId)`    | EIP-712 typed data for an EVM wallet             | `Eip712TypedData` |
+| `buildGrantSnip12(grant)`             | SNIP-12 rev 1 typed data for a Stark owner       | `TypedData`       |
+| `buildPasskeyGrantEip712/Snip12(...)` | Typed data for `PasskeyGrant`                    | typed data        |
+| `buildMintEip712/Snip12(...)`         | Typed data for `SessionMint`                     | typed data        |
+| `hashEip712(typedData)`               | EIP-712 digest                                   | `Hex`             |
+| `hashSnip12(typedData, account)`      | SNIP-12 message hash                             | `Hex`             |
+| `validateGrant(grant)`                | Check format rules and lifetime caps             | `void` (throws)   |
+| `assertGrantActive(grant, now?)`      | Throw `GRANT_EXPIRED` once the grant has expired | `void` (throws)   |
 
 ## Support
 
