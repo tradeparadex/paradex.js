@@ -1,10 +1,14 @@
 import type { SignatureType } from '@noble/curves/abstract/weierstrass';
+import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { ethers } from 'ethers';
 import * as Starknet from 'starknet';
 
 import * as Account from '../src/account';
 import { isStarknetSignatureEqual } from '../src/account';
-import { ethersSignerAdapter } from '../src/ethereum-signer';
+import {
+  buildEthereumStarkKeyTypedData,
+  ethersSignerAdapter,
+} from '../src/ethereum-signer';
 
 import { configFactory } from './factories/paradex-config';
 import { createMockProvider } from './mocks/provider';
@@ -269,3 +273,216 @@ export function createMockSignature(
     toDERHex: jest.fn(),
   };
 }
+
+describe('server-derived account address', () => {
+  const apiUrl = 'https://api.example.paradex.trade/v1';
+  const serverAddress =
+    '0x5f2a1c9d2bb3e4f50617283940a1b2c3d4e5f60718293a4b5c6d7e8f9012345';
+  const seed = 'test test test test test test test test test test test ball';
+  const localAddress =
+    '0x72c394aaa3fae59ad7749c856dc18e2a289e83885b80c0da7731290a9163e17';
+
+  let fetchMock: jest.Mock;
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        address: serverAddress,
+        exists: true,
+        account_signer_type: 'starknet',
+        derivation_info: { class_hash: '0x123' },
+      }),
+    });
+    global.fetch = fetchMock;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  async function expectedPublicKey(): Promise<string> {
+    const wallet = ethers.Wallet.fromPhrase(seed);
+    const typedData = buildEthereumStarkKeyTypedData(
+      configFactory().ethereumChainId,
+    );
+    const signature =
+      await ethersSignerAdapter(wallet).signTypedData(typedData);
+    const privateKey = keyDerivation.getPrivateKeyFromEthSignature(signature);
+    return `0x${keyDerivation.privateToStarkKey(privateKey)}`;
+  }
+
+  test('uses the address returned by the API', async () => {
+    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
+    const local = await Account.deriveFromEthSigner({
+      config: configFactory(),
+      signer,
+    });
+
+    const credentials = await Account.deriveFromEthSigner({
+      config: { ...configFactory(), paradexApiUrl: apiUrl },
+      signer,
+      serverDeriveAddress: true,
+    });
+
+    expect(credentials.address).toBe(serverAddress);
+    expect(credentials.privateKey).toBe(local.privateKey);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(`${url.origin}${url.pathname}`).toBe(`${apiUrl}/onboarding`);
+    expect(url.searchParams.get('account_signer_type')).toBe('starknet');
+    expect(url.searchParams.get('public_key')).toBe(await expectedPublicKey());
+  });
+
+  test('apiUrl parameter overrides the config value', async () => {
+    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
+
+    await Account.deriveFromEthSigner({
+      config: { ...configFactory(), paradexApiUrl: 'https://ignored.test/v1' },
+      signer,
+      serverDeriveAddress: true,
+      apiUrl: `${apiUrl}/`,
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toMatch(
+      new RegExp(`^${apiUrl}/onboarding\\?`),
+    );
+  });
+
+  test('derives locally and skips the API by default', async () => {
+    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
+
+    const credentials = await Account.deriveFromEthSigner({
+      config: { ...configFactory(), paradexApiUrl: apiUrl },
+      signer,
+    });
+
+    expect(credentials.address).toBe(localAddress);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('throws when no API URL is available', async () => {
+    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: configFactory(),
+        signer,
+        serverDeriveAddress: true,
+      }),
+    ).rejects.toThrow('serverDeriveAddress requires an API URL');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('throws when the API request fails', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+    });
+    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: configFactory(),
+        signer,
+        serverDeriveAddress: true,
+        apiUrl,
+      }),
+    ).rejects.toThrow(
+      'Failed to fetch Paradex onboarding info: Bad Request 400',
+    );
+  });
+
+  test('fromEthSigner passes the option through', async () => {
+    const account = await Account.fromEthSigner({
+      provider: createMockProvider(),
+      config: configFactory(),
+      signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+      serverDeriveAddress: true,
+      apiUrl,
+    });
+
+    expect(account.address).toBe(serverAddress);
+  });
+
+  test('deriveFromStarknetAccount uses the address returned by the API', async () => {
+    const snProvider = createMockProvider();
+    const snAccount = new Starknet.Account({
+      provider: snProvider,
+      address:
+        '0x4383e793c2d1bc29be7647794936371dac6955636f22069a033d4392794780a',
+      signer:
+        '0x46063cf2e9c3cbf5cc17ad5fdfce6b6959fede7ceb433dc057a3c90f668004b',
+    });
+    jest
+      .spyOn(snProvider, 'getClassHashAt')
+      .mockResolvedValueOnce(
+        '0x1a736d6ed154502257f02b1ccdf4d9d1089f80811cd6acad48e6b6a9d1f2003',
+      );
+    jest.spyOn(snProvider, 'getClassAt').mockResolvedValueOnce({
+      sierra_program: [],
+      contract_class_version: '',
+      entry_points_by_type: { CONSTRUCTOR: [], EXTERNAL: [], L1_HANDLER: [] },
+      abi: [{ type: 'function', inputs: [{ type: '::' }] }], // mock cairo1 contract abi
+    });
+
+    const credentials = await Account.deriveFromStarknetAccount({
+      config: { ...configFactory(), paradexApiUrl: apiUrl },
+      account: snAccount,
+      starknetProvider: snProvider,
+      serverDeriveAddress: true,
+    });
+
+    expect(credentials.address).toBe(serverAddress);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('fetchOnboarding', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('maps the API response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        address: '0xabc',
+        exists: false,
+        account_signer_type: 'starknet',
+        derivation_info: { class_hash: '0x1', proxy_class_hash: '0x2' },
+      }),
+    });
+
+    const info = await Account.fetchOnboarding({
+      apiUrl: 'https://api.example.paradex.trade/v1',
+      publicKey: '0x1234',
+    });
+
+    expect(info).toEqual({
+      address: '0xabc',
+      exists: false,
+      accountSignerType: 'starknet',
+      derivationInfo: { classHash: '0x1', proxyClassHash: '0x2' },
+    });
+  });
+
+  test('throws when the response has no address', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ exists: false }),
+    });
+
+    await expect(
+      Account.fetchOnboarding({
+        apiUrl: 'https://api.example.paradex.trade/v1',
+        publicKey: '0x1234',
+      }),
+    ).rejects.toThrow('Paradex onboarding response is missing the address');
+  });
+});

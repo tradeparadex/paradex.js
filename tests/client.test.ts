@@ -27,6 +27,38 @@ describe('ParadexClient', () => {
       );
     });
 
+    test('should use the API-derived address when serverDeriveAddress is set', async () => {
+      const serverAddress =
+        '0x5f2a1c9d2bb3e4f50617283940a1b2c3d4e5f60718293a4b5c6d7e8f9012345';
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          address: serverAddress,
+          exists: false,
+          account_signer_type: 'starknet',
+        }),
+      });
+
+      try {
+        const wallet = ethers.Wallet.fromPhrase(
+          'test test test test test test test test test test test ball',
+        );
+        const client = await ParadexClient.createFromEthSigner({
+          config: {
+            ...configFactory(),
+            paradexApiUrl: 'https://api.example.paradex.trade/v1',
+          },
+          signer: ethersSignerAdapter(wallet),
+          serverDeriveAddress: true,
+        });
+
+        expect(client.getAddress()).toBe(serverAddress);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
     test('should throw error if provider creation fails', async () => {
       const wallet = ethers.Wallet.fromPhrase(
         'test test test test test test test test test test test ball',

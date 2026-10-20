@@ -1,4 +1,4 @@
-import { buildConfig, type RawParadexConfig } from '../src/config';
+import { buildConfig, fetchConfig, type RawParadexConfig } from '../src/config';
 
 describe('buildConfig', () => {
   test('returns the correct config object', () => {
@@ -64,5 +64,41 @@ describe('buildConfig', () => {
     const config = buildConfig(rawConfig);
 
     expect(config).toEqual(expectedConfig);
+  });
+});
+
+describe('fetchConfig', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('records the API URL in the config', async () => {
+    const rawConfig: RawParadexConfig = {
+      starknet_gateway_url: '',
+      starknet_fullnode_rpc_url: '',
+      starknet_chain_id: 'PRIVATE_SN_POTC_SEPOLIA',
+      block_explorer_url: '',
+      paraclear_address: '0x1',
+      paraclear_decimals: 8,
+      paraclear_account_proxy_hash: '0x2',
+      paraclear_account_hash: '0x3',
+      bridged_tokens: [],
+      l1_core_contract_address: '0x4',
+      l1_operator_address: '0x5',
+      l1_chain_id: '11155111',
+    };
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => rawConfig,
+    });
+
+    const config = await fetchConfig('testnet');
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.testnet.paradex.trade/v1/system/config',
+    );
+    expect(config.paradexApiUrl).toBe('https://api.testnet.paradex.trade/v1');
   });
 });

@@ -76,6 +76,13 @@ describe('Paradex SDK exports', () => {
     });
   });
 
+  describe('Onboarding', () => {
+    test('should export fetch method', () => {
+      expect(Paradex.Onboarding.fetch).toBeDefined();
+      expect(typeof Paradex.Onboarding.fetch).toBe('function');
+    });
+  });
+
   describe('Signer', () => {
     test('should export fromEthers method', () => {
       expect(Paradex.Signer.fromEthers).toBeDefined();

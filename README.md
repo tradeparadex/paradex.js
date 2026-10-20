@@ -80,6 +80,30 @@ const client = await Paradex.Client.fromStarknetAccount({
 });
 ```
 
+### Account Address
+
+By default the SDK computes the Paradex account address locally from the account class hashes in the config. Accounts created with the current Paradex account class (for example, accounts onboarded through the Paradex app) have a different address than this local derivation produces. Set `serverDeriveAddress: true` to fetch the address from the Paradex API instead:
+
+```typescript
+const client = await Paradex.Client.fromEthSigner({
+  config,
+  signer,
+  serverDeriveAddress: true,
+});
+```
+
+The API URL comes from the config returned by `Paradex.Config.fetch()`. If you build the config yourself, pass `apiUrl` (for example `https://api.testnet.paradex.trade/v1`) together with `serverDeriveAddress`. The same options are accepted by `Paradex.Client.fromStarknetAccount()`.
+
+To look up an address and onboarding status directly from a Paradex public key:
+
+```typescript
+const info = await Paradex.Onboarding.fetch({
+  apiUrl: 'https://api.testnet.paradex.trade/v1',
+  publicKey: '0x...',
+});
+console.log(info.address, info.exists);
+```
+
 ### Configuration
 
 Fetch environment-specific configuration:
@@ -351,6 +375,12 @@ For a full React application example, see: [paradex-react-example](https://githu
 | Method              | Description                         | Returns         |
 | ------------------- | ----------------------------------- | --------------- |
 | `Config.fetch(env)` | Fetch configuration for environment | `ParadexConfig` |
+
+### Onboarding
+
+| Method                                    | Description                                             | Returns          |
+| ----------------------------------------- | ------------------------------------------------------- | ---------------- |
+| `Onboarding.fetch({ apiUrl, publicKey })` | Get the account address and onboarding status for a key | `OnboardingInfo` |
 
 ### Signer
 
