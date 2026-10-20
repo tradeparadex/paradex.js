@@ -114,6 +114,41 @@ describe('ParadexClient', () => {
         '0x7b21ae25ac9b3f3ff47bb541097332f27252567a5e6f0399ff6f2cfdb1a2cb',
       );
     });
+
+    test('should use the API-derived address for a Starknet account', async () => {
+      const snProvider = createMockProvider();
+      const snAccount = new Starknet.Account({
+        provider: snProvider,
+        address:
+          '0x4383e793c2d1bc29be7647794936371dac6955636f22069a033d4392794780a',
+        signer:
+          '0x46063cf2e9c3cbf5cc17ad5fdfce6b6959fede7ceb433dc057a3c90f668004b',
+      });
+
+      jest
+        .spyOn(snProvider, 'getClassHashAt')
+        .mockResolvedValueOnce(
+          '0x1a736d6ed154502257f02b1ccdf4d9d1089f80811cd6acad48e6b6a9d1f2003',
+        );
+      jest.spyOn(snProvider, 'getClassAt').mockResolvedValueOnce({
+        sierra_program: [],
+        contract_class_version: '',
+        entry_points_by_type: { CONSTRUCTOR: [], EXTERNAL: [], L1_HANDLER: [] },
+        abi: [{ type: 'function', inputs: [{ type: '::' }] }],
+      });
+
+      const config = configFactory();
+      const client = await ParadexClient.createFromStarknetAccount({
+        config,
+        account: snAccount,
+        starknetProvider: snProvider,
+      });
+
+      expect(client).toBeInstanceOf(ParadexClient);
+      expect(client.getAddress()).toBe(
+        '0x7b21ae25ac9b3f3ff47bb541097332f27252567a5e6f0399ff6f2cfdb1a2cb',
+      );
+    });
   });
 
   describe('getTokenBalance', () => {

@@ -256,8 +256,10 @@ export async function fetchOnboarding({
   );
 
   if (!resp.ok) {
+    const detail = await readErrorMessage(resp);
     throw new Error(
-      `Failed to fetch Paradex onboarding info: ${resp.statusText} ${resp.status}`,
+      `Failed to fetch Paradex onboarding info: ${resp.statusText} ${resp.status}` +
+        (detail != null ? ` (${detail})` : ''),
     );
   }
 
@@ -281,6 +283,20 @@ export async function fetchOnboarding({
         }
       : {}),
   };
+}
+
+/**
+ * Returns the `message` field of a Paradex API error body, if there is one.
+ */
+async function readErrorMessage(resp: Response): Promise<string | undefined> {
+  try {
+    const body = (await resp.json()) as { message?: unknown };
+    return typeof body.message === 'string' && body.message !== ''
+      ? body.message
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 interface ResolveAccountAddressParams extends AddressDerivationOptions {

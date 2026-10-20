@@ -48,6 +48,20 @@ describe('derive credentials from eth signer', () => {
   });
 });
 
+describe('derive credentials from non-deterministic eth signer', () => {
+  test('throws when the two signatures differ', async () => {
+    let counter = 0;
+    const signer = {
+      signTypedData: async () =>
+        `0x${(++counter).toString(16).padStart(130, '0')}`,
+    };
+
+    await expect(
+      Account.deriveFromEthSigner({ config: configFactory(), signer }),
+    ).rejects.toThrow('Wallet does not support deterministic signing');
+  });
+});
+
 describe('create account from eth signer', () => {
   test('correct account address is generated', async () => {
     const testCases = [
@@ -376,6 +390,19 @@ describe('server-derived account address', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test('throws when the API URL is empty', async () => {
+    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: { ...configFactory(), paradexApiUrl: '' },
+        signer,
+        serverDeriveAddress: true,
+      }),
+    ).rejects.toThrow('serverDeriveAddress requires an API URL');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('throws when the API request fails', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: false,
@@ -470,6 +497,99 @@ describe('fetchOnboarding', () => {
       accountSignerType: 'starknet',
       derivationInfo: { classHash: '0x1', proxyClassHash: '0x2' },
     });
+  });
+
+  test('includes the API error message when the request fails', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      json: async () => ({
+        error: 'INVALID_REQUEST_PARAMETER',
+        message: 'invalid Starknet public key format',
+      }),
+    });
+
+    await expect(
+      Account.fetchOnboarding({
+        apiUrl: 'https://api.example.paradex.trade/v1',
+        publicKey: '0x1234',
+      }),
+    ).rejects.toThrow(
+      'Failed to fetch Paradex onboarding info: Bad Request 400 (invalid Starknet public key format)',
+    );
+  });
+
+  test('falls back to the status when the error body is not JSON', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      json: async () => {
+        throw new SyntaxError('Unexpected token <');
+      },
+    });
+
+    await expect(
+      Account.fetchOnboarding({
+        apiUrl: 'https://api.example.paradex.trade/v1',
+        publicKey: '0x1234',
+      }),
+    ).rejects.toThrow(
+      /^Failed to fetch Paradex onboarding info: Bad Gateway 502$/,
+    );
+  });
+
+  test('omits optional fields missing from the response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ address: '0xabc' }),
+    });
+
+    const info = await Account.fetchOnboarding({
+      apiUrl: 'https://api.example.paradex.trade/v1',
+      publicKey: '0x1234',
+    });
+
+    expect(info).toEqual({
+      address: '0xabc',
+      exists: false,
+      accountSignerType: 'starknet',
+    });
+    expect(info).not.toHaveProperty('derivationInfo');
+  });
+
+  test('omits proxyClassHash when the account has no proxy', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        address: '0xabc',
+        exists: true,
+        account_signer_type: 'starknet',
+        derivation_info: { class_hash: '0x1' },
+      }),
+    });
+
+    const info = await Account.fetchOnboarding({
+      apiUrl: 'https://api.example.paradex.trade/v1',
+      publicKey: '0x1234',
+    });
+
+    expect(info.derivationInfo).toEqual({ classHash: '0x1' });
+  });
+
+  test('throws when the address is not hex-prefixed', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ address: 'abc', exists: false }),
+    });
+
+    await expect(
+      Account.fetchOnboarding({
+        apiUrl: 'https://api.example.paradex.trade/v1',
+        publicKey: '0x1234',
+      }),
+    ).rejects.toThrow('Paradex onboarding response is missing the address');
   });
 
   test('throws when the response has no address', async () => {

@@ -64,6 +64,11 @@ describe('buildConfig', () => {
     const config = buildConfig(rawConfig);
 
     expect(config).toEqual(expectedConfig);
+    expect(config).not.toHaveProperty('paradexApiUrl');
+    expect(buildConfig(rawConfig, 'https://api.example/v1')).toEqual({
+      ...expectedConfig,
+      paradexApiUrl: 'https://api.example/v1',
+    });
   });
 });
 
@@ -100,5 +105,26 @@ describe('fetchConfig', () => {
       'https://api.testnet.paradex.trade/v1/system/config',
     );
     expect(config.paradexApiUrl).toBe('https://api.testnet.paradex.trade/v1');
+  });
+
+  test('throws when the request fails', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+    });
+
+    await expect(fetchConfig('prod')).rejects.toThrow(
+      'Failed to fetch Paradex config: Service Unavailable 503',
+    );
+  });
+
+  test('rejects an unknown environment', async () => {
+    global.fetch = jest.fn();
+
+    await expect(fetchConfig('nightly' as 'prod')).rejects.toThrow(
+      'Invalid Paradex environment: nightly',
+    );
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
