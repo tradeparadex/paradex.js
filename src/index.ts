@@ -1,3 +1,4 @@
+import * as _Account from './account.js';
 import * as _Client from './client.js';
 import * as _Config from './config.js';
 import * as _Signer from './ethereum-signer.js';
@@ -15,11 +16,20 @@ export const Config = {
   fetch: _Config.fetchConfig,
 };
 
+export const Onboarding = {
+  fetch: _Account.fetchOnboarding,
+};
+
 export const Signer = {
   fromEthers: _Signer.ethersSignerAdapter,
 };
 
 // Export types for TypeScript users
+export type {
+  AddressDerivationOptions,
+  OnboardingInfo,
+  OnboardingDerivationInfo,
+} from './account.js';
 export type {
   ParadexClient,
   CreateClientFromEthSignerParams,

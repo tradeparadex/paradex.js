@@ -4,18 +4,21 @@ import {
   deriveFromEthSigner,
   deriveFromStarknetAccount,
   type Account,
+  type AddressDerivationOptions,
 } from './account.js';
 import type { ParadexConfig } from './config.js';
 import type { EthereumSigner } from './ethereum-signer.js';
 import { DefaultProvider } from './paraclear-provider.js';
 import * as Paraclear from './paraclear.js';
 
-export interface CreateClientFromEthSignerParams {
+export interface CreateClientFromEthSignerParams
+  extends AddressDerivationOptions {
   readonly config: ParadexConfig;
   readonly signer: EthereumSigner;
 }
 
-export interface CreateClientFromStarknetAccountParams {
+export interface CreateClientFromStarknetAccountParams
+  extends AddressDerivationOptions {
   readonly config: ParadexConfig;
   readonly account: Starknet.AccountInterface;
   readonly starknetProvider?: Starknet.ProviderInterface;
@@ -69,9 +72,16 @@ export class ParadexClient {
   static async createFromEthSigner({
     config,
     signer,
+    serverDeriveAddress,
+    apiUrl,
   }: CreateClientFromEthSignerParams): Promise<ParadexClient> {
     // Derive credentials internally (privateKey never exposed)
-    const credentials = await deriveFromEthSigner({ config, signer });
+    const credentials = await deriveFromEthSigner({
+      config,
+      signer,
+      serverDeriveAddress,
+      apiUrl,
+    });
 
     // Create authenticated provider
     const provider = new DefaultProvider(config, credentials);
@@ -93,6 +103,8 @@ export class ParadexClient {
     account,
     starknetProvider,
     rpcUrl,
+    serverDeriveAddress,
+    apiUrl,
   }: CreateClientFromStarknetAccountParams): Promise<ParadexClient> {
     // Derive credentials internally (privateKey never exposed)
     const credentials = await deriveFromStarknetAccount({
@@ -100,6 +112,8 @@ export class ParadexClient {
       account,
       starknetProvider,
       rpcUrl,
+      serverDeriveAddress,
+      apiUrl,
     });
 
     // Create authenticated provider
