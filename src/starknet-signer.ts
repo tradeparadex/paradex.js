@@ -34,16 +34,15 @@ export function buildStarknetStarkKeyTypedData(
 type StarknetKeypair = [string, string];
 
 /**
- * This function borrows from starkware-crypto-utils's implementation
- * of `getPrivateKeyFromEthSignature()` where a deterministic
- * signature R segment, is hex encoded as the `keySeed` for
- * `grindKey()` along the Stark curve.
+ * Mirrors `getPrivateKeyFromEthSignature()` in `./key-derivation.ts`:
+ * the deterministic signature R segment, hex encoded, is the `keySeed`
+ * for `grindKey()` along the Stark curve.
  */
 export async function getStarkKeypairFromStarknetSignature(
   signatureR: string,
 ): Promise<StarknetKeypair> {
   const r = signatureR.replace(/^0x/u, '');
-  const privateKey = keyDerivation.grindKey(r, keyDerivation.STARK_EC_ORDER);
+  const privateKey = keyDerivation.grindKey(r);
   const publicKey = keyDerivation.privateToStarkKey(privateKey);
   return [privateKey, publicKey];
 }

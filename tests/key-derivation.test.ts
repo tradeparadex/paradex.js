@@ -2,7 +2,6 @@ import {
   getPrivateKeyFromEthSignature,
   grindKey,
   privateToStarkKey,
-  STARK_EC_ORDER,
 } from '../src/key-derivation';
 import { getStarkKeypairFromStarknetSignature } from '../src/starknet-signer';
 
@@ -56,6 +55,9 @@ const ethSignatureCases = [
 
 // Includes a seed whose first hash is rejected (needs a second grind round)
 // and odd-length seeds, whose trailing nibble handling must be preserved.
+// For odd-length seeds the dropped nibble mangles the index byte, so rounds
+// 0-15 hash identical bytes; the last two cases are rejected on round 0 and
+// pin that path (a Starknet signature r with a leading zero nibble hits it).
 const grindCases = [
   {
     seed: 'f21b0ef89d8ee5daf6ba6cd441652a647229941e85b1537b5c35ede6b4d519a8',
@@ -119,6 +121,20 @@ const grindCases = [
     publicKey:
       '15c07ae845357444e030d21a553f3a5212d6ef9fcc6cb7d4a2fb8b48a403540',
   },
+  {
+    seed: 'a61e70cd5f4f2ce2549cc404c74d8b43e1cd5ff4222de47326227651663a283',
+    privateKey:
+      '1735651870e4a45c5567933bf21153e0ba3244c043cf5f3e3888a8231b3439b',
+    publicKey:
+      '66b4e70eed7acdf17523f87f10d8d3e8468ade7aa534de8c47e65968fba7710',
+  },
+  {
+    seed: '1f59596e4',
+    privateKey:
+      '5e0aa84b4ee601727cf1d09934b0851bb434b2a173f75d90a55f6781d50e63f',
+    publicKey:
+      '19655012a85c89e1c1ae195ccd329fb521ad779803f4fe21e884aa8f72e72f8',
+  },
 ];
 
 const starkKeyCases = [
@@ -174,7 +190,7 @@ describe('key derivation matches starkware-crypto-utils', () => {
   test.each(grindCases)(
     'grindKey($seed)',
     ({ seed, privateKey, publicKey }) => {
-      expect(grindKey(seed, STARK_EC_ORDER)).toBe(privateKey);
+      expect(grindKey(seed)).toBe(privateKey);
       expect(privateToStarkKey(privateKey)).toBe(publicKey);
     },
   );
