@@ -1,8 +1,8 @@
-import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import type { Signature, SignerInterface, TypedData } from 'starknet';
 import * as Starknet from 'starknet';
 
 import { STARKNET_MAINNET_CHAIN_ID } from './constants.js';
+import * as keyDerivation from './key-derivation.js';
 import { AccountSupport } from './starknet-account-support.js';
 
 export type { SignerInterface as Signer, TypedData, Signature };
@@ -42,12 +42,8 @@ type StarknetKeypair = [string, string];
 export async function getStarkKeypairFromStarknetSignature(
   signatureR: string,
 ): Promise<StarknetKeypair> {
-  const curve = keyDerivation.StarkExEc;
-  if (curve == null) {
-    throw new Error('StarkExEc curve is not defined');
-  }
   const r = signatureR.replace(/^0x/u, '');
-  const privateKey = keyDerivation.grindKey(r, curve);
+  const privateKey = keyDerivation.grindKey(r, keyDerivation.STARK_EC_ORDER);
   const publicKey = keyDerivation.privateToStarkKey(privateKey);
   return [privateKey, publicKey];
 }
