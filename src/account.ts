@@ -1,8 +1,8 @@
-import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import * as Starknet from 'starknet';
 
 import type { ParadexConfig } from './config.js';
 import * as ethereumSigner from './ethereum-signer.js';
+import * as keyDerivation from './key-derivation.js';
 import * as starknetSigner from './starknet-signer.js';
 import type { Hex } from './types.js';
 

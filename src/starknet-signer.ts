@@ -1,8 +1,8 @@
-import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import type { Signature, SignerInterface, TypedData } from 'starknet';
 import * as Starknet from 'starknet';
 
 import { STARKNET_MAINNET_CHAIN_ID } from './constants.js';
+import * as keyDerivation from './key-derivation.js';
 import { AccountSupport } from './starknet-account-support.js';
 
 export type { SignerInterface as Signer, TypedData, Signature };
@@ -34,20 +34,15 @@ export function buildStarknetStarkKeyTypedData(
 type StarknetKeypair = [string, string];
 
 /**
- * This function borrows from starkware-crypto-utils's implementation
- * of `getPrivateKeyFromEthSignature()` where a deterministic
- * signature R segment, is hex encoded as the `keySeed` for
- * `grindKey()` along the Stark curve.
+ * Mirrors `getPrivateKeyFromEthSignature()` in `./key-derivation.ts`:
+ * the deterministic signature R segment, hex encoded, is the `keySeed`
+ * for `grindKey()` along the Stark curve.
  */
 export async function getStarkKeypairFromStarknetSignature(
   signatureR: string,
 ): Promise<StarknetKeypair> {
-  const curve = keyDerivation.StarkExEc;
-  if (curve == null) {
-    throw new Error('StarkExEc curve is not defined');
-  }
   const r = signatureR.replace(/^0x/u, '');
-  const privateKey = keyDerivation.grindKey(r, curve);
+  const privateKey = keyDerivation.grindKey(r);
   const publicKey = keyDerivation.privateToStarkKey(privateKey);
   return [privateKey, publicKey];
 }
