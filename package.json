@@ -54,9 +54,9 @@
     "typescript": "~5.9.3"
   },
   "resolutions": {
-    "brace-expansion": "^2.0.2",
-    "js-yaml": "^4.1.1",
     "micromatch": "^4.0.8",
-    "@babel/helpers": "^7.26.10"
+    "@babel/helpers": "^7.26.10",
+    "ethers/ws": "^8.21.0",
+    "**/@typescript-eslint/typescript-estree/minimatch": "^9.0.7"
   }
 }
