@@ -137,17 +137,34 @@ describe('ParadexClient', () => {
         abi: [{ type: 'function', inputs: [{ type: '::' }] }],
       });
 
-      const config = configFactory();
-      const client = await ParadexClient.createFromStarknetAccount({
-        config,
-        account: snAccount,
-        starknetProvider: snProvider,
+      const serverAddress =
+        '0x5f2a1c9d2bb3e4f50617283940a1b2c3d4e5f60718293a4b5c6d7e8f9012345';
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          address: serverAddress,
+          exists: true,
+          account_signer_type: 'starknet',
+        }),
       });
 
-      expect(client).toBeInstanceOf(ParadexClient);
-      expect(client.getAddress()).toBe(
-        '0x7b21ae25ac9b3f3ff47bb541097332f27252567a5e6f0399ff6f2cfdb1a2cb',
-      );
+      try {
+        const client = await ParadexClient.createFromStarknetAccount({
+          config: {
+            ...configFactory(),
+            paradexApiUrl: 'https://api.example.paradex.trade/v1',
+          },
+          account: snAccount,
+          starknetProvider: snProvider,
+          serverDeriveAddress: true,
+        });
+
+        expect(client.getAddress()).toBe(serverAddress);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+      } finally {
+        global.fetch = originalFetch;
+      }
     });
   });
 
