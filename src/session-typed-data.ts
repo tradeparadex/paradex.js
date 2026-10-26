@@ -136,9 +136,36 @@ export type LimitCaps = Partial<Record<LimitAmount, string>>;
 /** No client-side caps by default; the server applies its own. */
 export const DEFAULT_LIMIT_CAPS: LimitCaps = {};
 
+/** A limit the server can enforce: one of the amounts, or `markets`. */
+export type LimitName = keyof Limits;
+
+/**
+ * Limits the server enforces. Defaults to none: until the server enforces a
+ * limit, a grant may not set it, because nothing would hold orders to it.
+ */
+export const DEFAULT_ENFORCED_LIMITS: readonly LimitName[] = [];
+
+/** Every limit set, for limits a client knows the server enforces. */
+export const ALL_LIMITS: readonly LimitName[] = [...LIMIT_AMOUNTS, 'markets'];
+
+/** Every limit uncapped: what a grant must state while none is enforced. */
+export const UNCAPPED_LIMITS: Limits = {
+  maxOrderNotional: NO_CAP,
+  maxOpenNotional: NO_CAP,
+  dailyNotional: NO_CAP,
+  maxLoss: NO_CAP,
+  maxLeverage: NO_CAP,
+  markets: ALL_MARKETS,
+};
+
 export interface LimitOptions {
   /** Defaults to {@link DEFAULT_LIMIT_CAPS}. */
   readonly limitCaps?: LimitCaps;
+  /**
+   * Limits the server enforces; defaults to {@link DEFAULT_ENFORCED_LIMITS}
+   * (none). A limit not listed must be `"none"` (`markets`: `["*"]`).
+   */
+  readonly enforcedLimits?: readonly LimitName[];
 }
 
 export interface Builder {
@@ -574,18 +601,28 @@ function isNoCap(value: string): boolean {
 
 /**
  * Every amount must be a positive decimal or `"none"`; `markets` must be a
- * non-empty list, or `["*"]` alone.
+ * non-empty list, or `["*"]` alone. A limit the server does not enforce
+ * must be `"none"` (`markets`: `["*"]`).
  *
- * @param builderGrant builder grants must cap `maxLoss` with a number.
+ * @param builderGrant builder grants must cap `maxLoss` with a number, so
+ * they are refused while the server does not enforce `maxLoss`.
  */
 export function validateLimits(
   limits: Limits,
   builderGrant: boolean,
   field = 'limits',
-  caps: LimitCaps = DEFAULT_LIMIT_CAPS,
+  options: LimitOptions = {},
 ): void {
+  const caps = options.limitCaps ?? DEFAULT_LIMIT_CAPS;
+  const enforced = options.enforcedLimits ?? DEFAULT_ENFORCED_LIMITS;
   if (limits == null || typeof limits !== 'object') {
     throw invalid(field, 'is required');
+  }
+  if (builderGrant && !enforced.includes('maxLoss')) {
+    throw new SessionGrantError(
+      'BUILDER_LIMITS_REQUIRED',
+      `${field}.maxLoss: builder grants need a loss cap, which the server does not enforce yet`,
+    );
   }
   for (const key of LIMIT_AMOUNTS) {
     const value: unknown = limits[key];
@@ -610,6 +647,12 @@ export function validateLimits(
         throw invalid(`${field}.${key}`, 'must be positive');
       }
     }
+    if (!enforced.includes(key) && !isNoCap(value)) {
+      throw new SessionGrantError(
+        'LIMIT_INVALID',
+        `${field}.${key}: not enforced by the server yet, so it must be "${NO_CAP}"`,
+      );
+    }
     const cap = caps[key];
     if (
       cap != null &&
@@ -629,6 +672,12 @@ export function validateLimits(
   }
   if (limits.markets.includes('*') && limits.markets.length > 1) {
     throw invalid(`${field}.markets`, '"*" must be the only entry');
+  }
+  if (!enforced.includes('markets') && limits.markets[0] !== '*') {
+    throw new SessionGrantError(
+      'LIMIT_INVALID',
+      `${field}.markets: not enforced by the server yet, so it must be ["*"]`,
+    );
   }
   const seen = new Set<string>();
   (limits.markets as readonly unknown[]).forEach((market, i) => {
@@ -726,7 +775,7 @@ export function validateSessionGrant(
   if (builder.expiresAt > grant.expiresAt) {
     throw invalid('builder.expiresAt', 'must not outlive the session');
   }
-  validateLimits(grant.limits, hasBuilder, 'limits', options.limitCaps);
+  validateLimits(grant.limits, hasBuilder, 'limits', options);
 }
 
 export function validatePasskeyGrant(
@@ -772,7 +821,12 @@ export function validatePasskeyGrant(
     throw invalid('ceiling', 'is required');
   }
   validateScopes(ceiling.scopes, 'ceiling.scopes');
-  validateLimits(ceiling.limits, false, 'ceiling.limits', options.limitCaps);
+  validateLimits(
+    ceiling.limits,
+    grant.builderAccount !== NO_BUILDER,
+    'ceiling.limits',
+    options,
+  );
   requireUniqueAddresses(
     'ceiling.subaccounts',
     ceiling.subaccounts,
@@ -821,7 +875,7 @@ export function validateSessionMint(
   requireCanonicalHex('sessionKey', mint.sessionKey, FELT_PRIME);
   if (mint.sessionKey === '0x0') throw invalid('sessionKey', 'is zero');
   validateScopes(mint.scopes);
-  validateLimits(mint.limits, false, 'limits', options.limitCaps);
+  validateLimits(mint.limits, false, 'limits', options);
   requireTimestamp('expiresAt', mint.expiresAt);
 }
 
@@ -844,7 +898,9 @@ export function assertMintWithinCeiling(
   options: LimitOptions = {},
 ): void {
   validateSessionMint(mint, options);
-  validatePasskeyGrant(grant, options);
+  // The passkey was registered earlier, possibly with limits the server now
+  // leaves unenforced; check its format only.
+  validatePasskeyGrant(grant, { limitCaps: {}, enforcedLimits: ALL_LIMITS });
   if (
     mint.paradexChain !== grant.paradexChain ||
     mint.environment !== grant.environment
@@ -866,10 +922,13 @@ export function assertMintWithinCeiling(
       throw exceeds(`scopes: "${scope}" is not in the ceiling`);
     }
   }
+  const enforced = options.enforcedLimits ?? DEFAULT_ENFORCED_LIMITS;
+  // Limits the server does not enforce are "none" on the mint and are not
+  // compared, so passkeys registered with numbers keep working.
   for (const key of LIMIT_AMOUNTS) {
     const cap = ceiling.limits[key];
     const value = mint.limits[key];
-    if (isNoCap(cap)) continue;
+    if (!enforced.includes(key) || isNoCap(cap)) continue;
     if (isNoCap(value)) {
       throw exceeds(`limits.${key}: the ceiling caps it at ${cap}`);
     }
@@ -877,7 +936,9 @@ export function assertMintWithinCeiling(
       throw exceeds(`limits.${key}: ${value} is above the ceiling ${cap}`);
     }
   }
-  const allowedMarkets = ceiling.limits.markets;
+  const allowedMarkets = enforced.includes('markets')
+    ? ceiling.limits.markets
+    : ALL_MARKETS;
   for (const market of mint.limits.markets) {
     if (!allowedMarkets.some((pattern) => marketCovers(pattern, market))) {
       throw exceeds(`limits.markets: "${market}" is not in the ceiling`);
@@ -917,8 +978,12 @@ export interface CreateSessionGrantParams {
   readonly sessionKey: string;
   readonly scopes?: readonly SessionScope[];
   readonly label?: string;
-  /** Every limit, stated as a positive decimal or `"none"`. */
-  readonly limits: Limits;
+  /**
+   * Every limit, stated as a positive decimal or `"none"`. Defaults to
+   * {@link UNCAPPED_LIMITS}, the only limits accepted while the server
+   * enforces none.
+   */
+  readonly limits?: Limits;
   readonly builder?: {
     readonly account: string;
     readonly maxFeeRate: string;
@@ -935,6 +1000,8 @@ export interface CreateSessionGrantParams {
   readonly sessionType?: SessionType;
   /** Defaults to {@link DEFAULT_LIMIT_CAPS}. */
   readonly limitCaps?: LimitCaps;
+  /** Limits the server enforces; defaults to none (see {@link LimitOptions}). */
+  readonly enforcedLimits?: readonly LimitName[];
 }
 
 export function nowSeconds(): number {
@@ -961,7 +1028,10 @@ export function createSessionGrant(
     sessionKey: canonicalFelt(params.sessionKey),
     label: params.label ?? '',
     scopes: [...(params.scopes ?? ['trade'])],
-    limits: { ...params.limits, markets: [...(params.limits?.markets ?? [])] },
+    limits: {
+      ...(params.limits ?? UNCAPPED_LIMITS),
+      markets: [...(params.limits ?? UNCAPPED_LIMITS).markets],
+    },
     builder:
       params.builder == null
         ? { account: NO_BUILDER, maxFeeRate: '0', expiresAt: 0 }
@@ -981,6 +1051,7 @@ export function createSessionGrant(
   validateSessionGrant(grant, {
     sessionType: params.sessionType,
     limitCaps: params.limitCaps,
+    enforcedLimits: params.enforcedLimits,
   });
   return grant;
 }
@@ -1213,8 +1284,11 @@ export function hashSnip12(
  * The WebAuthn challenge for a `SessionMint`: the 32-byte SNIP-12 message
  * hash (for `mint.account`), base64url-encoded without padding.
  */
-export function sessionMintChallenge(mint: SessionMint): string {
-  const hash = hashSnip12(buildSessionMintSnip12(mint), mint.account);
+export function sessionMintChallenge(
+  mint: SessionMint,
+  options: LimitOptions = {},
+): string {
+  const hash = hashSnip12(buildSessionMintSnip12(mint, options), mint.account);
   const bytes = new Uint8Array(32);
   let n = BigInt(hash);
   for (let i = 31; i >= 0; i--) {

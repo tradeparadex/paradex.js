@@ -3,6 +3,7 @@ import * as Starknet from 'starknet';
 
 import { hashDomain, hashStruct, type Eip712TypedData } from '../src/eip712';
 import {
+  ALL_LIMITS,
   assertGrantActive,
   assertMintWithinCeiling,
   buildPasskeyGrantEip712,
@@ -13,6 +14,7 @@ import {
   buildSessionMintSnip12,
   canonicalFelt,
   createSessionGrant,
+  DEFAULT_ENFORCED_LIMITS,
   DEFAULT_LIMIT_CAPS,
   generateSessionNonce,
   grantAccounts,
@@ -25,6 +27,7 @@ import {
   SessionGrantError,
   sessionMintChallenge,
   summarizeGrant,
+  UNCAPPED_LIMITS,
   validatePasskeyGrant,
   validateSessionGrant,
   validateSessionMint,
@@ -76,22 +79,34 @@ function vectorOf(predicate: (v: Vector) => boolean): Vector {
 function buildEip712(v: Vector, chainId: number): Eip712TypedData {
   switch (v.primaryType) {
     case 'SessionGrant':
-      return buildSessionGrantEip712(v.message as SessionGrant, chainId);
+      return buildSessionGrantEip712(
+        v.message as SessionGrant,
+        chainId,
+        ENFORCED,
+      );
     case 'PasskeyGrant':
-      return buildPasskeyGrantEip712(v.message as PasskeyGrant, chainId);
+      return buildPasskeyGrantEip712(
+        v.message as PasskeyGrant,
+        chainId,
+        ENFORCED,
+      );
     case 'SessionMint':
-      return buildSessionMintEip712(v.message as SessionMint, chainId);
+      return buildSessionMintEip712(
+        v.message as SessionMint,
+        chainId,
+        ENFORCED,
+      );
   }
 }
 
 function buildSnip12(v: Vector): Starknet.TypedData {
   switch (v.primaryType) {
     case 'SessionGrant':
-      return buildSessionGrantSnip12(v.message as SessionGrant);
+      return buildSessionGrantSnip12(v.message as SessionGrant, ENFORCED);
     case 'PasskeyGrant':
-      return buildPasskeyGrantSnip12(v.message as PasskeyGrant);
+      return buildPasskeyGrantSnip12(v.message as PasskeyGrant, ENFORCED);
     case 'SessionMint':
-      return buildSessionMintSnip12(v.message as SessionMint);
+      return buildSessionMintSnip12(v.message as SessionMint, ENFORCED);
   }
 }
 
@@ -102,6 +117,9 @@ const SESSION_KEY =
 const BUILDER =
   '0x2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cf';
 const T0 = 1760000000;
+/** Tests below use numeric limits, valid once the server enforces them. */
+const ENFORCED = { enforcedLimits: ALL_LIMITS };
+
 const FULL_LIMITS = {
   maxOrderNotional: '25000',
   maxOpenNotional: '100000',
@@ -122,6 +140,7 @@ function params(
     nonce: '0x1',
     issuedAt: T0,
     limits: FULL_LIMITS,
+    ...ENFORCED,
     ...overrides,
   };
 }
@@ -204,9 +223,9 @@ describe('golden vectors', () => {
   test.each(
     vectors.filter((v) => v.mintChallenge != null).map((v) => [v.name, v]),
   )('%s: WebAuthn challenge', (_name, v) => {
-    expect(sessionMintChallenge(v.message as unknown as SessionMint)).toBe(
-      v.mintChallenge,
-    );
+    expect(
+      sessionMintChallenge(v.message as unknown as SessionMint, ENFORCED),
+    ).toBe(v.mintChallenge);
   });
 
   test('builder grants have no SNIP-12 form', () => {
@@ -216,21 +235,22 @@ describe('golden vectors', () => {
         (x.message as SessionGrant).builder.account !== '0x0',
     );
     expectCode(
-      () => buildSessionGrantSnip12(v.message as unknown as SessionGrant),
+      () =>
+        buildSessionGrantSnip12(v.message as unknown as SessionGrant, ENFORCED),
       'BUILDER_REQUIRES_EIP712',
     );
   });
 
   test('the wallet chain is part of the digest', () => {
     const g = grant();
-    expect(hashEip712(buildSessionGrantEip712(g, 1))).not.toBe(
-      hashEip712(buildSessionGrantEip712(g, 42161)),
+    expect(hashEip712(buildSessionGrantEip712(g, 1, ENFORCED))).not.toBe(
+      hashEip712(buildSessionGrantEip712(g, 42161, ENFORCED)),
     );
   });
 
   test('EIP-712 grant signed by a wallet recovers to the wallet', async () => {
     const wallet = ethers.Wallet.createRandom();
-    const td = buildSessionGrantEip712(grant(), 42161);
+    const td = buildSessionGrantEip712(grant(), 42161, ENFORCED);
     const sig = await wallet.signTypedData(
       td.domain,
       td.types as Record<string, ethers.TypedDataField[]>,
@@ -298,7 +318,7 @@ describe('createSessionGrant', () => {
 
   test('typed data copies the grant', () => {
     const g = grant();
-    const td = buildSessionGrantEip712(g, 1);
+    const td = buildSessionGrantEip712(g, 1, ENFORCED);
     expect(td.message).toEqual(g);
     expect(td.message).not.toBe(g);
   });
@@ -450,10 +470,14 @@ describe('refusals', () => {
         grant({
           builder: { account: '0x0', maxFeeRate: '0.1', expiresAt: 0 },
         }),
+        ENFORCED,
       );
     }, 'INVALID_FIELD');
     expectCode(() => {
-      validateSessionGrant({ ...grant(), builder: undefined as never });
+      validateSessionGrant(
+        { ...grant(), builder: undefined as never },
+        ENFORCED,
+      );
     }, 'INVALID_FIELD');
   });
 
@@ -464,14 +488,17 @@ describe('refusals', () => {
         builder: { account: BUILDER, maxFeeRate: '0.0005' },
       }),
     );
-    expect(() => buildSessionGrantEip712(g, 1)).not.toThrow();
-    expectCode(() => buildSessionGrantSnip12(g), 'BUILDER_REQUIRES_EIP712');
+    expect(() => buildSessionGrantEip712(g, 1, ENFORCED)).not.toThrow();
+    expectCode(
+      () => buildSessionGrantSnip12(g, ENFORCED),
+      'BUILDER_REQUIRES_EIP712',
+    );
   });
 
   test('SNIP-12 strings must be ASCII', () => {
     const g = grant({ label: 'café' });
-    expect(() => buildSessionGrantEip712(g, 1)).not.toThrow();
-    expectCode(() => buildSessionGrantSnip12(g), 'INVALID_FIELD');
+    expect(() => buildSessionGrantEip712(g, 1, ENFORCED)).not.toThrow();
+    expectCode(() => buildSessionGrantSnip12(g, ENFORCED), 'INVALID_FIELD');
   });
 
   test.each<[string, Partial<SessionGrant>]>([
@@ -501,7 +528,7 @@ describe('refusals', () => {
     ['label missing', { label: undefined as never }],
   ])('%s is refused', (_name, overrides) => {
     expectCode(() => {
-      validateSessionGrant(grant(overrides));
+      validateSessionGrant(grant(overrides), ENFORCED);
     }, 'INVALID_FIELD');
   });
 
@@ -511,6 +538,7 @@ describe('refusals', () => {
       expectCode(() => {
         validateSessionGrant(
           grant({ limits: { ...FULL_LIMITS, maxOrderNotional: value } }),
+          ENFORCED,
         );
       }, 'INVALID_FIELD');
     },
@@ -522,6 +550,7 @@ describe('refusals', () => {
       expectCode(() => {
         validateSessionGrant(
           grant({ limits: { ...FULL_LIMITS, markets: [market as string] } }),
+          ENFORCED,
         );
       }, 'INVALID_FIELD');
     },
@@ -536,30 +565,34 @@ describe('refusals', () => {
             markets: ['BTC-USD-PERP', 'BTC-USD-PERP'],
           },
         }),
+        ENFORCED,
       );
     }, 'INVALID_FIELD');
     expectCode(() => {
-      validateSessionGrant(grant({ limits: undefined as never }));
+      validateSessionGrant(grant({ limits: undefined as never }), ENFORCED);
     }, 'INVALID_FIELD');
     expectCode(() => {
       validateSessionGrant(
         grant({ limits: { ...FULL_LIMITS, markets: 'BTC' as never } }),
+        ENFORCED,
       );
     }, 'INVALID_FIELD');
   });
 
   test.each([0, -1, 'abc', 1.5])('signature chain id %p is refused', (id) => {
     expectCode(
-      () => buildSessionGrantEip712(grant(), id as number),
+      () => buildSessionGrantEip712(grant(), id as number, ENFORCED),
       'INVALID_FIELD',
     );
   });
 
   test('chain id may be a decimal or hex string', () => {
-    expect(buildSessionGrantEip712(grant(), '0xa4b1').domain.chainId).toBe(
-      42161,
+    expect(
+      buildSessionGrantEip712(grant(), '0xa4b1', ENFORCED).domain.chainId,
+    ).toBe(42161);
+    expect(buildSessionGrantEip712(grant(), 10n, ENFORCED).domain.chainId).toBe(
+      10,
     );
-    expect(buildSessionGrantEip712(grant(), 10n).domain.chainId).toBe(10);
   });
 });
 
@@ -620,7 +653,7 @@ const mint = (): SessionMint =>
 describe('PasskeyGrant', () => {
   test('the vector validates', () => {
     expect(() => {
-      validatePasskeyGrant(passkeyGrant());
+      validatePasskeyGrant(passkeyGrant(), ENFORCED);
     }).not.toThrow();
   });
 
@@ -629,16 +662,24 @@ describe('PasskeyGrant', () => {
     const g = {
       ...base,
       builderAccount: BUILDER,
-      ceiling: { ...base.ceiling, includeFutureSubaccounts: true },
+      ceiling: {
+        ...base.ceiling,
+        // Builder passkeys need a numeric loss cap.
+        limits: { ...base.ceiling.limits, maxLoss: '1000' },
+        includeFutureSubaccounts: true,
+      },
     };
     expectCode(() => {
-      validatePasskeyGrant(g);
+      validatePasskeyGrant(g, ENFORCED);
     }, 'INVALID_FIELD');
     expect(() => {
-      validatePasskeyGrant({
-        ...g,
-        ceiling: { ...g.ceiling, includeFutureSubaccounts: false },
-      });
+      validatePasskeyGrant(
+        {
+          ...g,
+          ceiling: { ...g.ceiling, includeFutureSubaccounts: false },
+        },
+        ENFORCED,
+      );
     }).not.toThrow();
   });
 
@@ -732,7 +773,7 @@ describe('PasskeyGrant', () => {
     ],
   ])('%s is refused', (_name, mutate, code) => {
     expectCode(() => {
-      validatePasskeyGrant(mutate(passkeyGrant()));
+      validatePasskeyGrant(mutate(passkeyGrant()), ENFORCED);
     }, code);
   });
 });
@@ -740,7 +781,7 @@ describe('PasskeyGrant', () => {
 describe('SessionMint', () => {
   test('the vector validates', () => {
     expect(() => {
-      validateSessionMint(mint());
+      validateSessionMint(mint(), ENFORCED);
     }).not.toThrow();
   });
 
@@ -760,11 +801,14 @@ describe('SessionMint', () => {
       a === 'ANCHOR' ? m.account : a,
     );
     expectCode(() => {
-      validateSessionMint({
-        ...m,
-        ...overrides,
-        ...(subaccounts != null ? { subaccounts } : {}),
-      });
+      validateSessionMint(
+        {
+          ...m,
+          ...overrides,
+          ...(subaccounts != null ? { subaccounts } : {}),
+        },
+        ENFORCED,
+      );
     }, code);
   });
 });
@@ -782,7 +826,7 @@ describe('assertMintWithinCeiling', () => {
   };
   const check =
     (mint: SessionMint, grant: PasskeyGrant, now: number) => (): void => {
-      assertMintWithinCeiling(mint, grant, now);
+      assertMintWithinCeiling(mint, grant, now, ENFORCED);
     };
   const withLimits = (
     mint: SessionMint,
@@ -916,6 +960,7 @@ describe('market names', () => {
       expectCode(() => {
         validateSessionGrant(
           grant({ limits: { ...FULL_LIMITS, markets: [market] } }),
+          ENFORCED,
         );
       }, 'INVALID_FIELD');
     },
@@ -930,6 +975,7 @@ describe('market names', () => {
             markets: ['0G-USD-PERP', '1INCH-USD-PERP'],
           },
         }),
+        ENFORCED,
       );
     }).not.toThrow();
   });
@@ -994,19 +1040,25 @@ describe('stated limits', () => {
   test('passkey ceilings and mints follow the same rules', () => {
     const grant = passkeyGrant();
     expectCode(() => {
-      validatePasskeyGrant({
-        ...grant,
-        ceiling: {
-          ...grant.ceiling,
-          limits: { ...grant.ceiling.limits, maxLoss: '' },
+      validatePasskeyGrant(
+        {
+          ...grant,
+          ceiling: {
+            ...grant.ceiling,
+            limits: { ...grant.ceiling.limits, maxLoss: '' },
+          },
         },
-      });
+        ENFORCED,
+      );
     }, 'INVALID_FIELD');
     expectCode(() => {
-      validateSessionMint({
-        ...mint(),
-        limits: { ...mint().limits, markets: [] },
-      });
+      validateSessionMint(
+        {
+          ...mint(),
+          limits: { ...mint().limits, markets: [] },
+        },
+        ENFORCED,
+      );
     }, 'INVALID_FIELD');
   });
 });
@@ -1063,13 +1115,13 @@ describe('limit caps', () => {
       params({ limits: { ...FULL_LIMITS, maxOrderNotional: '400000' } }),
     );
     const limitCaps = { maxOrderNotional: '250000' };
-    expect(() => buildSessionGrantEip712(g, 1)).not.toThrow();
+    expect(() => buildSessionGrantEip712(g, 1, ENFORCED)).not.toThrow();
     expectCode(
-      () => buildSessionGrantEip712(g, 1, { limitCaps }),
+      () => buildSessionGrantEip712(g, 1, { ...ENFORCED, limitCaps }),
       'LIMIT_INVALID',
     );
     expectCode(
-      () => buildSessionGrantSnip12(g, { limitCaps }),
+      () => buildSessionGrantSnip12(g, { ...ENFORCED, limitCaps }),
       'LIMIT_INVALID',
     );
   });
@@ -1077,10 +1129,11 @@ describe('limit caps', () => {
   test('passkey ceilings and mints are capped too', () => {
     const limitCaps = { maxLoss: '1000' };
     expectCode(() => {
-      validatePasskeyGrant(passkeyGrant(), { limitCaps });
+      validatePasskeyGrant(passkeyGrant(), { ...ENFORCED, limitCaps });
     }, 'LIMIT_INVALID');
     expectCode(
-      () => buildPasskeyGrantEip712(passkeyGrant(), 1, { limitCaps }),
+      () =>
+        buildPasskeyGrantEip712(passkeyGrant(), 1, { ...ENFORCED, limitCaps }),
       'LIMIT_INVALID',
     );
     const overMint = {
@@ -1088,10 +1141,10 @@ describe('limit caps', () => {
       limits: { ...mint().limits, maxLoss: '1000.5' },
     };
     expectCode(() => {
-      validateSessionMint(overMint, { limitCaps });
+      validateSessionMint(overMint, { ...ENFORCED, limitCaps });
     }, 'LIMIT_INVALID');
     expectCode(
-      () => buildSessionMintSnip12(overMint, { limitCaps }),
+      () => buildSessionMintSnip12(overMint, { ...ENFORCED, limitCaps }),
       'LIMIT_INVALID',
     );
   });
@@ -1152,6 +1205,7 @@ describe('server shape rules', () => {
     expectCode(() => {
       validateSessionGrant(
         grant({ limits: { ...FULL_LIMITS, markets: [market] } }),
+        ENFORCED,
       );
     }, 'INVALID_FIELD');
   });
@@ -1168,7 +1222,7 @@ describe('server shape rules', () => {
     ['an expiry', { account: '0x0', maxFeeRate: '0', expiresAt: T0 + 60 }],
   ])('no builder with %s is refused', (_name, builder) => {
     expectCode(() => {
-      validateSessionGrant(grant({ builder }));
+      validateSessionGrant(grant({ builder }), ENFORCED);
     }, 'INVALID_FIELD');
   });
 
@@ -1179,7 +1233,7 @@ describe('server shape rules', () => {
       expiresAt: 0,
     });
     expect(() => {
-      validateSessionGrant(grant());
+      validateSessionGrant(grant(), ENFORCED);
     }).not.toThrow();
   });
 });
@@ -1199,6 +1253,7 @@ describe('market symbols and patterns', () => {
     expect(() => {
       validateSessionGrant(
         grant({ limits: { ...FULL_LIMITS, markets: [market] } }),
+        ENFORCED,
       );
     }).not.toThrow();
   });
@@ -1239,13 +1294,19 @@ describe('market symbols and patterns', () => {
       limits: { ...builderMint.limits, markets },
     });
     expect(() => {
-      assertMintWithinCeiling(withMarkets(['SOL-USD-PERP']), patterned, now);
+      assertMintWithinCeiling(
+        withMarkets(['SOL-USD-PERP']),
+        patterned,
+        now,
+        ENFORCED,
+      );
     }).not.toThrow();
     expect(() => {
       assertMintWithinCeiling(
         withMarkets(['SOL-USD-27NOV26-C']),
         patterned,
         now,
+        ENFORCED,
       );
     }).toThrow(SessionGrantError);
   });
@@ -1254,16 +1315,149 @@ describe('market symbols and patterns', () => {
     const builder = { account: BUILDER, maxFeeRate: '0.0005' };
     const g = createSessionGrant(params({ builder }));
     expect(() => {
-      validateSessionGrant({
-        ...g,
-        builder: { ...g.builder, expiresAt: g.expiresAt },
-      });
+      validateSessionGrant(
+        {
+          ...g,
+          builder: { ...g.builder, expiresAt: g.expiresAt },
+        },
+        ENFORCED,
+      );
     }).not.toThrow();
     expectCode(() => {
-      validateSessionGrant({
-        ...g,
-        builder: { ...g.builder, expiresAt: g.expiresAt + 1 },
-      });
+      validateSessionGrant(
+        {
+          ...g,
+          builder: { ...g.builder, expiresAt: g.expiresAt + 1 },
+        },
+        ENFORCED,
+      );
     }, 'INVALID_FIELD');
+  });
+});
+
+describe('limits the server does not enforce', () => {
+  const launch = (
+    overrides: Partial<CreateSessionGrantParams> = {},
+  ): CreateSessionGrantParams =>
+    params({ limits: undefined, enforcedLimits: undefined, ...overrides });
+
+  test('by default every limit is uncapped and nothing else is accepted', () => {
+    expect(DEFAULT_ENFORCED_LIMITS).toEqual([]);
+    const g = createSessionGrant(launch());
+    expect(g.limits).toEqual(UNCAPPED_LIMITS);
+    expect(() => {
+      validateSessionGrant(g);
+    }).not.toThrow();
+    expect(() => buildSessionGrantEip712(g, 1)).not.toThrow();
+  });
+
+  test.each([
+    ['maxOrderNotional', { ...UNCAPPED_LIMITS, maxOrderNotional: '25000' }],
+    ['maxLeverage', { ...UNCAPPED_LIMITS, maxLeverage: '10' }],
+    ['markets', { ...UNCAPPED_LIMITS, markets: ['BTC-USD-PERP'] }],
+  ])('a numeric %s is refused, naming it', (name, limits) => {
+    let error: unknown;
+    try {
+      createSessionGrant(launch({ limits }));
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(SessionGrantError);
+    expect((error as SessionGrantError).code).toBe('LIMIT_INVALID');
+    expect((error as Error).message).toContain(`limits.${name}`);
+  });
+
+  test('only the listed limits may be set', () => {
+    const enforcedLimits = ['maxOrderNotional', 'markets'] as const;
+    expect(() =>
+      createSessionGrant(
+        launch({
+          enforcedLimits,
+          limits: {
+            ...UNCAPPED_LIMITS,
+            maxOrderNotional: '25000',
+            markets: ['BTC-USD-PERP'],
+          },
+        }),
+      ),
+    ).not.toThrow();
+    expectCode(
+      () =>
+        createSessionGrant(
+          launch({
+            enforcedLimits,
+            limits: { ...UNCAPPED_LIMITS, maxOpenNotional: '1000' },
+          }),
+        ),
+      'LIMIT_INVALID',
+    );
+  });
+
+  test('builder grants are refused until maxLoss is enforced', () => {
+    const builder = { account: BUILDER, maxFeeRate: '0.0005' };
+    for (const maxLoss of ['none', '5000']) {
+      expectCode(
+        () =>
+          createSessionGrant(
+            launch({ builder, limits: { ...UNCAPPED_LIMITS, maxLoss } }),
+          ),
+        'BUILDER_LIMITS_REQUIRED',
+      );
+    }
+    expect(() =>
+      createSessionGrant(
+        launch({
+          builder,
+          enforcedLimits: ['maxLoss'],
+          limits: { ...UNCAPPED_LIMITS, maxLoss: '5000' },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  test('builder passkeys are refused; first-party ones may be uncapped', () => {
+    const firstParty = {
+      ...passkeyGrant(),
+      ceiling: { ...passkeyGrant().ceiling, limits: UNCAPPED_LIMITS },
+    };
+    expect(() => {
+      validatePasskeyGrant(firstParty);
+    }).not.toThrow();
+    expectCode(() => {
+      validatePasskeyGrant({
+        ...firstParty,
+        builderAccount: BUILDER,
+        ceiling: { ...firstParty.ceiling, includeFutureSubaccounts: false },
+      });
+    }, 'BUILDER_LIMITS_REQUIRED');
+  });
+
+  test('a mint skips unlisted limits against its ceiling', () => {
+    // A passkey registered with numeric caps keeps working: its mints are
+    // uncapped while the server enforces nothing.
+    const grant = vectorOf((v) => v.name === 'passkey-grant-first-party')
+      .message as unknown as PasskeyGrant;
+    const numericCeiling = {
+      ...grant,
+      ceiling: {
+        ...grant.ceiling,
+        limits: { ...FULL_LIMITS, markets: ['BTC-USD-PERP'] },
+      },
+    };
+    const m = {
+      ...(vectorOf((v) => v.name === 'session-mint-first-party')
+        .message as unknown as SessionMint),
+      limits: UNCAPPED_LIMITS,
+    };
+    expect(() => {
+      assertMintWithinCeiling(m, numericCeiling, m.expiresAt - 60);
+    }).not.toThrow();
+    expectCode(() => {
+      assertMintWithinCeiling(
+        { ...m, limits: { ...UNCAPPED_LIMITS, maxLoss: '10' } },
+        numericCeiling,
+        m.expiresAt - 60,
+      );
+    }, 'LIMIT_INVALID');
   });
 });

@@ -48,7 +48,13 @@ export const SessionTypedData = {
   maxSessionTtl: _SessionTypedData.maxSessionTtl,
 };
 
-export { DEFAULT_LIMIT_CAPS, SessionGrantError } from './session-typed-data.js';
+export {
+  ALL_LIMITS,
+  DEFAULT_ENFORCED_LIMITS,
+  DEFAULT_LIMIT_CAPS,
+  SessionGrantError,
+  UNCAPPED_LIMITS,
+} from './session-typed-data.js';
 
 // Export types for TypeScript users
 export type {
@@ -70,6 +76,8 @@ export type {
   Ceiling,
   CreateSessionGrantParams,
   LimitCaps,
+  LimitName,
+  LimitOptions,
   Limits,
   Passkey,
   PasskeyGrant,
