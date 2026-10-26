@@ -224,16 +224,7 @@ const grant = Paradex.SessionTypedData.createGrant({
   account: '0x...', // the owner's Paradex account
   sessionKey: '0x...', // the session's Stark public key
   scopes: ['trade'], // 'trade' | 'trade:rfq' | 'trade:block' | 'account:settings'
-  // Every limit is stated: a positive decimal (USD; leverage as a multiple)
-  // or 'none' for no cap. markets: a list, or ['*'] for every market.
-  limits: {
-    maxOrderNotional: '25000',
-    maxOpenNotional: '100000',
-    dailyNotional: '500000',
-    maxLoss: '5000',
-    maxLeverage: '10',
-    markets: ['BTC-USD-PERP'],
-  },
+  // limits defaults to every limit uncapped ('none', markets ['*']).
   subaccounts: [], // sub-account addresses the session may also trade
 });
 
@@ -242,13 +233,23 @@ const typedData = Paradex.SessionTypedData.buildGrantEip712(grant, chainId);
 const digest = Paradex.SessionTypedData.hashEip712(typedData);
 ```
 
-Grants are checked before signing. These throw a `SessionGrantError` with a `code`: reserved scopes (`withdraw:owner`, `trade:isolated`); lifetimes past the server caps; limits left empty; builder grants without a numeric `maxLoss` or asking for `trade:block` or `account:settings`. Pass `limitCaps` to refuse limits above your own ceilings before the wallet is asked.
+Every limit is stated: a positive decimal (USD; leverage as a multiple) or `"none"` for no cap, and `markets` is a list or `["*"]` for every market. A grant may only set a limit the server enforces. Until it enforces any, every limit must be `"none"` and `markets` `["*"]`, which is the default. When the server enforces some, list them in `enforcedLimits` (for example `['maxOrderNotional', 'markets']`), and only those may be set.
+
+Grants are checked before signing. These throw a `SessionGrantError` with a `code`:
+
+- reserved scopes (`withdraw:owner`, `trade:isolated`);
+- lifetimes past the server caps;
+- a limit that is empty, or set while the server doesn't enforce it (`LIMIT_INVALID`);
+- builder grants asking for `trade:block` or `account:settings`;
+- builder grants without a numeric `maxLoss`. Builder grants need a loss cap, so they're refused until the server enforces `maxLoss`.
+
+Pass `limitCaps` to refuse limits above your own ceilings before the wallet is asked.
 
 Show the owner what they are approving with `SessionTypedData.summarizeGrant(grant)`. Its first line states the risk plainly: _Cannot withdraw; can lose up to `maxLoss` USD by trading_, or, when `maxLoss` is `"none"`, _Cannot withdraw; trading losses are not capped by this session_.
 
 ### Sessions: trade with a session key (experimental)
 
-`SessionConnector` opens a session with **one** wallet prompt. A session cannot withdraw; it can lose up to the grant's `maxLoss` by trading. The Stark session key is generated in the page and stored encrypted under a non-extractable WebCrypto key; the private key is decrypted only while signing. The grant is registered with `POST /v2/sessions`.
+`SessionConnector` opens a session with **one** wallet prompt. A session cannot withdraw. Its trading losses are capped only by the grant's `maxLoss`, and while that is `"none"` (the default) they are not capped by the session. The Stark session key is generated in the page and stored encrypted under a non-extractable WebCrypto key; the private key is decrypted only while signing. The grant is registered with `POST /v2/sessions`.
 
 `SessionAccounts` then mints a JWT per account the grant lists (the main account and any `subaccounts`) through `POST /v1/auth` with `PARADEX-STARKNET-ACCOUNT`, each for at most 15 minutes and never past the grant's expiry. It keeps one websocket per account and routes requests by account. Sessions never use `on_behalf_of`. When the server refuses a session token or the session key, `SessionAccounts` checks `GET /v2/sessions/{grant_id}/status`. If the grant is revoked or expired, every account is dropped and `onDropped` is called; any other refusal is treated as transient. RFQ endpoints don't accept session tokens yet: a 403 there throws a `SessionApiError` with code `NOT_AVAILABLE_TO_SESSIONS`, and does not end the session. `accounts.revoke()` revokes the grant itself.
 
@@ -269,14 +270,8 @@ const session =
     account: '0x...',
     subaccounts: ['0x...'],
     scopes: ['trade'],
-    limits: {
-      maxOrderNotional: '25000',
-      maxOpenNotional: '100000',
-      dailyNotional: '500000',
-      maxLoss: '5000',
-      maxLeverage: '10',
-      markets: ['*'],
-    },
+    // limits defaults to every limit uncapped, as the server requires
+    // until it enforces limits (see enforcedLimits).
   }));
 
 const accounts = new Paradex.SessionAccounts({

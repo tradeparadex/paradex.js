@@ -25,14 +25,6 @@ describe('Paradex SDK exports', () => {
         expect(typeof fn).toBe('function');
       }
       const grant = Paradex.SessionTypedData.createGrant({
-        limits: {
-          maxOrderNotional: '25000',
-          maxOpenNotional: '100000',
-          dailyNotional: '500000',
-          maxLoss: '5000',
-          maxLeverage: '10',
-          markets: ['*'],
-        },
         paradexChain: 'PRIVATE_SN_POTC_SEPOLIA',
         environment: 'testnet',
         account: '0x1',

@@ -172,12 +172,31 @@ describe('SessionConnector.open', () => {
       .open({
         account: MAIN,
         limits: { ...LIMITS, maxOrderNotional: '300000' },
+        enforcedLimits: ['maxOrderNotional'],
         limitCaps: { maxOrderNotional: '250000' },
       })
       .catch((e: unknown) => e);
     expectCode(error, 'LIMIT_INVALID');
+    expect((error as Error).message).toContain('above the 250000 cap');
     expect(sign).not.toHaveBeenCalled();
     expect(transport).not.toHaveBeenCalled();
+  });
+
+  test('by default, refuses any limit the server does not enforce', async () => {
+    const { sign, transport, connector } = setup();
+    const error = await connector
+      .open({ account: MAIN, limits: { ...LIMITS, maxLoss: '5000' } })
+      .catch((e: unknown) => e);
+    expectCode(error, 'LIMIT_INVALID');
+    expect((error as Error).message).toContain('limits.maxLoss');
+    expect(sign).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  test('opens with uncapped limits when none are given', async () => {
+    const { connector } = setup();
+    const session = await connector.open({ account: MAIN });
+    expect(session.grant.limits).toEqual(LIMITS);
   });
 
   test('connector caps apply, and per-call caps override them', async () => {
@@ -191,6 +210,7 @@ describe('SessionConnector.open', () => {
           ethers.Wallet.createRandom().signingKey.sign(digest).serialized,
       }),
       transport,
+      enforcedLimits: ['maxOrderNotional'],
       limitCaps: { maxOrderNotional: '1000000' },
     });
     const session = await connector.open({

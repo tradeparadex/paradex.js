@@ -25,6 +25,7 @@ import {
   SessionGrantError,
   type CreateSessionGrantParams,
   type LimitCaps,
+  type LimitName,
   type SessionEnvironment,
   type SessionGrant,
 } from './session-typed-data.js';
@@ -57,6 +58,11 @@ export interface SessionConnectorParams {
    * `open()` may override them per call.
    */
   readonly limitCaps?: LimitCaps;
+  /**
+   * Limits the server enforces (none by default, so every limit must be
+   * `"none"`). `open()` may override them per call.
+   */
+  readonly enforcedLimits?: readonly LimitName[];
 }
 
 export type OpenSessionParams = Omit<
@@ -101,6 +107,7 @@ export class SessionConnector {
   private readonly apiUrl: string;
   private readonly now: () => number;
   private readonly limitCaps: LimitCaps | undefined;
+  private readonly enforcedLimits: readonly LimitName[] | undefined;
 
   constructor(params: SessionConnectorParams) {
     this.environment = params.environment;
@@ -111,6 +118,7 @@ export class SessionConnector {
     this.apiUrl = params.apiUrl ?? defaultApiUrl(params.environment);
     this.now = params.now ?? nowSeconds;
     this.limitCaps = params.limitCaps;
+    this.enforcedLimits = params.enforcedLimits;
   }
 
   /**
@@ -124,6 +132,7 @@ export class SessionConnector {
       ...params,
       issuedAt: params.issuedAt ?? this.now(),
       limitCaps: params.limitCaps ?? this.limitCaps,
+      enforcedLimits: params.enforcedLimits ?? this.enforcedLimits,
       paradexChain: this.paradexChain,
       environment: this.environment,
       sessionKey: key.publicKey,
@@ -134,6 +143,7 @@ export class SessionConnector {
       const signatureChainId = await this.owner.getChainId();
       const typedData = buildSessionGrantEip712(grant, signatureChainId, {
         limitCaps: params.limitCaps ?? this.limitCaps,
+        enforcedLimits: params.enforcedLimits ?? this.enforcedLimits,
       });
       const ownerSignature = assertEoaSignature(
         await this.owner.signTypedData({

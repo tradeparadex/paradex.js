@@ -62,7 +62,13 @@ export const Session = {
   indexedDbStorage: _SessionKey.indexedDbSessionStorage,
 };
 
-export { DEFAULT_LIMIT_CAPS, SessionGrantError } from './session-typed-data.js';
+export {
+  ALL_LIMITS,
+  DEFAULT_ENFORCED_LIMITS,
+  DEFAULT_LIMIT_CAPS,
+  SessionGrantError,
+  UNCAPPED_LIMITS,
+} from './session-typed-data.js';
 export { SessionConnector } from './session-connector.js';
 export {
   NOT_AVAILABLE_TO_SESSIONS,
@@ -91,6 +97,8 @@ export type {
   Ceiling,
   CreateSessionGrantParams,
   LimitCaps,
+  LimitName,
+  LimitOptions,
   Limits,
   Passkey,
   PasskeyGrant,

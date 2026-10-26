@@ -12,13 +12,13 @@ export const MAIN =
   '0x5f8c4f0b9e6a1c7d2e3f4a5b6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e8f';
 export const SUB = '0x11';
 
-/** Every limit stated, as grants require. */
+/** Every limit stated and uncapped: the only limits accepted by default. */
 export const LIMITS = {
-  maxOrderNotional: '25000',
-  maxOpenNotional: '100000',
-  dailyNotional: '500000',
-  maxLoss: '5000',
-  maxLeverage: '10',
+  maxOrderNotional: 'none',
+  maxOpenNotional: 'none',
+  dailyNotional: 'none',
+  maxLoss: 'none',
+  maxLeverage: 'none',
   markets: ['*'],
 };
 
