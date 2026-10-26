@@ -8,7 +8,7 @@ import {
 } from './eip712.js';
 import type { Hex } from './types.js';
 
-/**
+/*
  * Typed data for session grants: `SessionGrant`, `PasskeyGrant` and
  * `SessionMint`, in EIP-712 (EVM owners) and SNIP-12 revision 1 (Stark
  * owners) encodings with the same field names and order.
@@ -150,6 +150,7 @@ export interface Builder {
   readonly expiresAt: number;
 }
 
+/** @experimental */
 export interface SessionGrant {
   readonly paradexChain: string;
   readonly environment: SessionEnvironment;
@@ -185,6 +186,7 @@ export interface Ceiling {
   readonly maxConcurrentSessions: number;
 }
 
+/** @experimental */
 export interface PasskeyGrant {
   readonly paradexChain: string;
   readonly environment: SessionEnvironment;
@@ -198,6 +200,7 @@ export interface PasskeyGrant {
   readonly expiresAt: number;
 }
 
+/** @experimental */
 export interface SessionMint {
   readonly paradexChain: string;
   readonly environment: SessionEnvironment;
@@ -414,15 +417,18 @@ function isMarket(value: string): boolean {
   return true;
 }
 
-/** Whether a market pattern covers a symbol or a narrower pattern. */
+/** Whether a ceiling market entry covers a mint's market entry. */
 export function marketCovers(pattern: string, market: string): boolean {
   if (pattern === '*') return true;
-  if (!pattern.includes('*')) return pattern === market;
+  // A pattern is covered only by the same pattern (or `["*"]`), as the
+  // server checks it.
+  if (!pattern.includes('*') || market.includes('*')) {
+    return pattern === market;
+  }
   const source = pattern
     .split('*')
     .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
     .join('.*');
-  // A narrower pattern's "*" can only be absorbed by one of ours.
   return new RegExp(`^${source}$`).test(market);
 }
 const P256_COORD_RE = /^0x[0-9a-f]{64}$/;
@@ -505,6 +511,10 @@ function requireDecimal(
 }
 
 function requireEnvironment(value: unknown): void {
+  if (value === 'prod') {
+    // `Config.fetch` names it "prod"; sessions sign the environment name.
+    throw invalid('environment', 'use "mainnet", not "prod"');
+  }
   if (typeof value !== 'string' || !ENVIRONMENT_RE.test(value)) {
     throw invalid('environment', 'must be an environment name like "mainnet"');
   }
@@ -824,6 +834,8 @@ function exceeds(message: string): SessionGrantError {
  * server does: same binding, scopes within the ceiling, each limit numeric
  * and at or below a numeric ceiling (anything goes under a `"none"`
  * ceiling), and markets within the ceiling's unless it allows `["*"]`.
+ *
+ * @experimental
  */
 export function assertMintWithinCeiling(
   mint: SessionMint,
@@ -932,6 +944,8 @@ export function nowSeconds(): number {
 /**
  * Builds a canonical, validated `SessionGrant`. Addresses and keys are
  * normalized to canonical hex; everything else is checked as given.
+ *
+ * @experimental
  */
 export function createSessionGrant(
   params: CreateSessionGrantParams,
@@ -1078,6 +1092,8 @@ function snip12(
 /**
  * EIP-712 `SessionGrant`. `signatureChainId` is the wallet's *current* EVM
  * chain, so no network switch is needed; send it along with the signature.
+ *
+ * @experimental
  */
 export function buildSessionGrantEip712(
   grant: SessionGrant,
@@ -1096,6 +1112,8 @@ export function buildSessionGrantEip712(
 /**
  * SNIP-12 revision 1 `SessionGrant`, signed by a Stark owner key. Builder
  * grants are EIP-712 only, so a grant naming a builder is refused here.
+ *
+ * @experimental
  */
 export function buildSessionGrantSnip12(
   grant: SessionGrant,
@@ -1116,6 +1134,7 @@ export function buildSessionGrantSnip12(
   );
 }
 
+/** @experimental */
 export function buildPasskeyGrantEip712(
   grant: PasskeyGrant,
   signatureChainId: number | string | bigint,
@@ -1130,6 +1149,7 @@ export function buildPasskeyGrantEip712(
   );
 }
 
+/** @experimental */
 export function buildPasskeyGrantSnip12(
   grant: PasskeyGrant,
   options: LimitOptions = {},
@@ -1143,6 +1163,7 @@ export function buildPasskeyGrantSnip12(
   );
 }
 
+/** @experimental */
 export function buildSessionMintEip712(
   mint: SessionMint,
   signatureChainId: number | string | bigint,
@@ -1157,6 +1178,7 @@ export function buildSessionMintEip712(
   );
 }
 
+/** @experimental */
 export function buildSessionMintSnip12(
   mint: SessionMint,
   options: LimitOptions = {},
@@ -1217,6 +1239,8 @@ export function lossSummary(limits: Pick<Limits, 'maxLoss'>): string {
 /**
  * A readable summary of a grant for the approval screen, one line each.
  * Show the builder by its registered name, not the grant's free-text label.
+ *
+ * @experimental
  */
 export function summarizeGrant(grant: SessionGrant): string[] {
   const lines = [
