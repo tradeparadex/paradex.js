@@ -28,6 +28,15 @@ import {
 
 const T0 = 1760000000;
 
+/** `registered` with some response fields replaced. */
+function withBody(
+  req: HttpRequest,
+  fields: Record<string, unknown>,
+): { status: number; body: unknown } {
+  const ok = registered(req);
+  return { status: 200, body: { ...(ok.body as object), ...fields } };
+}
+
 /** The server's 200: the grant id and every account it registered. */
 function registered(req: HttpRequest): { status: number; body: unknown } {
   const { grant } = JSON.parse(req.body ?? '{}') as { grant: SessionGrant };
@@ -139,10 +148,7 @@ describe('SessionConnector.open', () => {
   });
 
   test('honours an apiUrl override', async () => {
-    const transport = mockTransport(() => ({
-      status: 200,
-      body: { grant_id: 's', accounts: [MAIN] },
-    }));
+    const transport = mockTransport(registered);
     const connector = new SessionConnector({
       environment: 'testnet',
       paradexChain: PARADEX_CHAIN,
@@ -273,15 +279,30 @@ describe('SessionConnector.open', () => {
     expect(await storage.list()).toEqual([]);
   });
 
+  test.each([
+    ['a different expiry', (ms: number) => ms + 1000],
+    ['seconds instead of milliseconds', (ms: number) => ms / 1000],
+    ['no expiry', () => undefined],
+  ])('refuses a response with %s', async (_name, expiresAt) => {
+    const { storage, connector } = setup({
+      respond: (req) => {
+        const ok = registered(req) as { body: { expires_at: number } };
+        return withBody(req, { expires_at: expiresAt(ok.body.expires_at) });
+      },
+    });
+    await expect(
+      connector.open({ limits: LIMITS, account: MAIN }),
+    ).rejects.toThrow(/different expiry/);
+    expect(await storage.list()).toEqual([]);
+  });
+
   test('accepts the account list in any hex form', async () => {
     const { connector } = setup({
-      respond: () => ({
-        status: 200,
-        body: {
+      respond: (req) =>
+        withBody(req, {
           grant_id: '0xg',
           accounts: ['0x0011', MAIN.toUpperCase().replace('0X', '0x')],
-        },
-      }),
+        }),
     });
     const session = await connector.open({
       limits: LIMITS,

@@ -30,14 +30,6 @@ import {
 } from './session-typed-data.js';
 import type { Hex } from './types.js';
 
-/**
- * Opens trading sessions for a wallet-owned account: generates the session
- * key in the page, asks the owner to sign one grant, and registers it.
- *
- * @experimental `POST /v2/sessions` is not released yet; the request and
- * response shapes follow the session-grant spec and may change.
- */
-
 export const SESSIONS_PATH = '/v2/sessions';
 
 /** A registered session: the grant and the key that may act under it. */
@@ -93,6 +85,13 @@ function sameAccounts(listed: unknown, grant: SessionGrant): boolean {
   return got.size === expected.size && [...got].every((a) => expected.has(a));
 }
 
+/**
+ * Opens trading sessions for a wallet-owned account: generates the session
+ * key in the page, asks the owner to sign one grant, and registers it.
+ *
+ * @experimental `POST /v2/sessions` is not released yet; the request and
+ * response shapes may change.
+ */
 export class SessionConnector {
   readonly environment: SessionEnvironment;
   readonly paradexChain: string;
@@ -169,6 +168,14 @@ export class SessionConnector {
         throw new SessionApiError(response.status, {
           error: 'INVALID_RESPONSE',
           message: 'POST /v2/sessions registered different accounts',
+        });
+      }
+      // The API reports times in milliseconds; the signed grant uses seconds.
+      // A different expiry means the server did not register this grant.
+      if (body?.expires_at !== grant.expiresAt * 1000) {
+        throw new SessionApiError(response.status, {
+          error: 'INVALID_RESPONSE',
+          message: 'POST /v2/sessions registered a different expiry',
         });
       }
 

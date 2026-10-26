@@ -27,20 +27,6 @@ import {
   type SessionEnvironment,
 } from './session-typed-data.js';
 
-/**
- * Trades every account a grant lists with one session key: a JWT per account
- * (`/auth` with `PARADEX-STARKNET-ACCOUNT`, signed by the session key), one
- * websocket per account, and requests routed by account. Sessions never use
- * `on_behalf_of`; each account authenticates as itself.
- *
- * When the grant expires or is revoked, every account is dropped: tokens are
- * discarded, sockets closed, and later calls throw. Whenever the server
- * refuses a session token or the session key, the grant's state is re-checked
- * with `GET /v2/sessions/{grant_id}/status`; any other answer is transient.
- *
- * @experimental
- */
-
 /** setTimeout's delay is a signed 32-bit millisecond count. */
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 const WS_OPEN = 1;
@@ -126,6 +112,19 @@ const RFQ_PATH = /^\/v\d+\/rfqs?(\/|\?|$)/;
 
 export const NOT_AVAILABLE_TO_SESSIONS = 'NOT_AVAILABLE_TO_SESSIONS';
 
+/**
+ * Trades every account a grant lists with one session key: a JWT per account
+ * (`/auth` with `PARADEX-STARKNET-ACCOUNT`, signed by the session key), one
+ * websocket per account, and requests routed by account. Sessions never use
+ * `on_behalf_of`; each account authenticates as itself.
+ *
+ * When the grant expires or is revoked, every account is dropped: tokens are
+ * discarded, sockets closed, and later calls throw. Whenever the server
+ * refuses a session token or the session key, the grant's state is re-checked
+ * with `GET /v2/sessions/{grant_id}/status`; any other answer is transient.
+ *
+ * @experimental
+ */
 export class SessionAccounts {
   readonly accounts: readonly string[];
   private readonly params: SessionAccountsParams;

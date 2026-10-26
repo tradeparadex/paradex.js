@@ -727,8 +727,13 @@ describe('expiry', () => {
   test('no /auth storm in the last minute of a grant', async () => {
     const h = setup({ grant: grantFor({ expiresAt: T0 + 30 }), jwtTtl: 300 });
     await h.accounts.subscribe(MAIN, 'account', jest.fn());
-    for (let i = 0; i < 5; i++) await h.accounts.getJwt(MAIN);
-    await jest.advanceTimersByTimeAsync(20_000);
+    // Use the token through the last seconds of the grant: inside the
+    // refresh margin, but re-minting cannot extend it.
+    for (const at of [T0, T0 + 5, T0 + 16, T0 + 25, T0 + 29]) {
+      jest.setSystemTime(at * 1000);
+      await h.accounts.getJwt(MAIN);
+    }
+    await jest.advanceTimersByTimeAsync(500);
     await new Promise((resolve) => setImmediate(resolve));
     expect(h.authCalls(MAIN)).toHaveLength(1);
     expect(MockSocket.instances[0]?.methods()).toEqual(['auth', 'subscribe']);
@@ -858,6 +863,19 @@ describe('websockets', () => {
     ws.respond = (msg) => ({ id: msg.id, result: {} });
     await accounts.subscribe(MAIN, 'bogus', jest.fn());
     expect(ws.methods().filter((m) => m === 'subscribe')).toHaveLength(3);
+  });
+
+  test('a socket opened on a cached JWT is still re-authenticated', async () => {
+    const { accounts, authCalls } = setup({ jwtTtl: 300 });
+    // A REST call caches the token before any socket exists.
+    await accounts.getJwt(MAIN);
+    await accounts.subscribe(MAIN, 'account', jest.fn());
+    const ws = MockSocket.instances[0];
+    expect(authCalls(MAIN)).toHaveLength(1);
+    await jest.advanceTimersByTimeAsync(240_000);
+    await waitFor(() => ws?.sent.length === 3);
+    expect(authCalls(MAIN)).toHaveLength(2);
+    expect(ws?.methods()).toEqual(['auth', 'subscribe', 'auth']);
   });
 
   test('re-authenticates the socket before the JWT expires', async () => {

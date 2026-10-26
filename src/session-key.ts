@@ -3,18 +3,6 @@ import * as Starknet from 'starknet';
 import type { SessionGrant } from './session-typed-data.js';
 import type { Hex } from './types.js';
 
-/**
- * A session's Stark key, generated in the page and kept encrypted at rest.
- *
- * The private key is encrypted with AES-GCM under a non-extractable WebCrypto
- * key. Storage holds the `CryptoKey` handle and the ciphertext; script can use
- * the handle but cannot read the AES key out of it. The private key is
- * decrypted only for the duration of a signature and the plaintext buffer is
- * zeroed afterwards.
- *
- * @experimental
- */
-
 export interface StoredSession {
   readonly version: 1;
   /** The session public key; also the storage id. */
@@ -163,6 +151,17 @@ async function encrypt(
   );
 }
 
+/**
+ * A session's Stark key, generated in the page and kept encrypted at rest.
+ *
+ * The private key is encrypted with AES-GCM under a non-extractable WebCrypto
+ * key. Storage holds the `CryptoKey` handle and the ciphertext; script can use
+ * the handle but cannot read the AES key out of it. The private key is
+ * decrypted only for the duration of a signature and the plaintext buffer is
+ * zeroed afterwards.
+ *
+ * @experimental
+ */
 export class SessionKey {
   readonly publicKey: Hex;
   readonly #record: StoredSession;
