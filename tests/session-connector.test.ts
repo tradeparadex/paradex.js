@@ -193,6 +193,24 @@ describe('SessionConnector.open', () => {
     expect(transport).not.toHaveBeenCalled();
   });
 
+  test('a per-call enforcedLimits lets that call set those limits', async () => {
+    const { connector, sign } = setup();
+    const limits = { ...LIMITS, maxOrderNotional: '25000' };
+    const session = await connector.open({
+      account: MAIN,
+      limits,
+      enforcedLimits: ['maxOrderNotional'],
+    });
+    expect(session.grant.limits.maxOrderNotional).toBe('25000');
+    expect(sign).toHaveBeenCalledTimes(1);
+    // Without it, the same limits are refused before signing.
+    const error = await connector
+      .open({ account: MAIN, limits })
+      .catch((e: unknown) => e);
+    expectCode(error, 'LIMIT_INVALID');
+    expect(sign).toHaveBeenCalledTimes(1);
+  });
+
   test('opens with uncapped limits when none are given', async () => {
     const { connector } = setup();
     const session = await connector.open({ account: MAIN });

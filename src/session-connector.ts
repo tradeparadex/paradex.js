@@ -26,6 +26,7 @@ import {
   type CreateSessionGrantParams,
   type LimitCaps,
   type LimitName,
+  type LimitOptions,
   type SessionEnvironment,
   type SessionGrant,
 } from './session-typed-data.js';
@@ -127,12 +128,15 @@ export class SessionConnector {
    * deleted.
    */
   async open(params: OpenSessionParams): Promise<Session> {
+    const limitOptions: LimitOptions = {
+      limitCaps: params.limitCaps ?? this.limitCaps,
+      enforcedLimits: params.enforcedLimits ?? this.enforcedLimits,
+    };
     let key = await SessionKey.generate();
     const grant = createSessionGrant({
       ...params,
+      ...limitOptions,
       issuedAt: params.issuedAt ?? this.now(),
-      limitCaps: params.limitCaps ?? this.limitCaps,
-      enforcedLimits: params.enforcedLimits ?? this.enforcedLimits,
       paradexChain: this.paradexChain,
       environment: this.environment,
       sessionKey: key.publicKey,
@@ -141,10 +145,11 @@ export class SessionConnector {
     await this.storage.put(key.record);
     try {
       const signatureChainId = await this.owner.getChainId();
-      const typedData = buildSessionGrantEip712(grant, signatureChainId, {
-        limitCaps: params.limitCaps ?? this.limitCaps,
-        enforcedLimits: params.enforcedLimits ?? this.enforcedLimits,
-      });
+      const typedData = buildSessionGrantEip712(
+        grant,
+        signatureChainId,
+        limitOptions,
+      );
       const ownerSignature = assertEoaSignature(
         await this.owner.signTypedData({
           typedData,
