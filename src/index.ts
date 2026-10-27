@@ -1,6 +1,8 @@
 import * as _Client from './client.js';
 import * as _Config from './config.js';
 import * as _Signer from './ethereum-signer.js';
+import * as _SessionKey from './session-key.js';
+import * as _SessionOwnerSigner from './session-owner-signer.js';
 import * as _SessionTypedData from './session-typed-data.js';
 
 // Recommended: High-level client interface
@@ -48,6 +50,18 @@ export const SessionTypedData = {
   maxSessionTtl: _SessionTypedData.maxSessionTtl,
 };
 
+/**
+ * Session connector: open a session with one owner signature, then trade
+ * every account the grant lists with the session key.
+ * @experimental `POST /v2/sessions` is not released yet.
+ */
+export const Session = {
+  ownerSignerFromEip1193: _SessionOwnerSigner.eip1193OwnerSigner,
+  ownerSignerFromExternal: _SessionOwnerSigner.externalOwnerSigner,
+  memoryStorage: _SessionKey.memorySessionStorage,
+  indexedDbStorage: _SessionKey.indexedDbSessionStorage,
+};
+
 export {
   ALL_LIMITS,
   DEFAULT_ENFORCED_LIMITS,
@@ -55,6 +69,13 @@ export {
   SessionGrantError,
   UNCAPPED_LIMITS,
 } from './session-typed-data.js';
+export { SessionConnector } from './session-connector.js';
+export {
+  NOT_AVAILABLE_TO_SESSIONS,
+  SessionAccounts,
+} from './session-accounts.js';
+export { SessionApiError } from './session-transport.js';
+export { SessionKey } from './session-key.js';
 
 // Export types for TypeScript users
 export type {
@@ -88,3 +109,29 @@ export type {
   SessionScope,
   SessionType,
 } from './session-typed-data.js';
+export type {
+  OpenSessionParams,
+  Session as RegisteredSession,
+  SessionConnectorParams,
+} from './session-connector.js';
+export type {
+  GrantState,
+  GrantStatus,
+  SessionAccountsParams,
+  SessionRequest,
+  SubscriptionHandler,
+} from './session-accounts.js';
+export type { OrderSide, OrderType, SessionOrder } from './session-auth.js';
+export type { SessionStorage, StoredSession } from './session-key.js';
+export type {
+  Eip1193Provider,
+  OwnerSignRequest,
+  SessionOwnerSigner,
+} from './session-owner-signer.js';
+export type {
+  HttpRequest,
+  HttpResponse,
+  HttpTransport,
+  WebSocketFactory,
+  WebSocketLike,
+} from './session-transport.js';
