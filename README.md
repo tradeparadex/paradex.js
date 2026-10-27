@@ -243,7 +243,7 @@ Grants are checked before signing. These throw a `SessionGrantError` with a `cod
 - builder grants asking for `trade:block` or `account:settings`;
 - builder grants without a numeric `maxLoss`. Builder grants need a loss cap, so they're refused until the server enforces `maxLoss`.
 
-Pass `limitCaps` to refuse limits above your own ceilings before the wallet is asked.
+Pass `limitCaps` to refuse limits above your own ceilings before the wallet is asked. Caps apply only to enforced limits; a cap on a limit the server doesn't enforce refuses every grant.
 
 Show the owner what they are approving with `SessionTypedData.summarizeGrant(grant)`. Its first line states the risk plainly: _Cannot withdraw; can lose up to `maxLoss` USD by trading_, or, when `maxLoss` is `"none"`, _Cannot withdraw; trading losses are not capped by this session_.
 
