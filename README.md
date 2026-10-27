@@ -211,6 +211,42 @@ const result = await provider.callContract({
 });
 ```
 
+### Session Grant Typed Data (experimental)
+
+A session grant lets a wallet authorize a short-lived Stark session key to trade, within scopes and limits, without withdrawing. The SDK builds the grant and its typed data in both encodings: EIP-712 for EVM wallets, with domain `{ name: "Paradex Session", version: "1", chainId: <the wallet's current chain> }`, and SNIP-12 revision 1 for Stark owners.
+
+> The server side of sessions is not released yet. These APIs may change.
+
+```typescript
+const grant = Paradex.SessionTypedData.createGrant({
+  paradexChain: 'PRIVATE_SN_PARACLEAR_MAINNET',
+  environment: 'mainnet', // or 'testnet'
+  account: '0x...', // the owner's Paradex account
+  sessionKey: '0x...', // the session's Stark public key
+  scopes: ['trade'], // 'trade' | 'trade:rfq' | 'trade:block' | 'account:settings'
+  // limits defaults to every limit uncapped ('none', markets ['*']).
+  subaccounts: [], // sub-account addresses the session may also trade
+});
+
+const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+const typedData = Paradex.SessionTypedData.buildGrantEip712(grant, chainId);
+const digest = Paradex.SessionTypedData.hashEip712(typedData);
+```
+
+Every limit is stated: a positive decimal (USD; leverage as a multiple) or `"none"` for no cap, and `markets` is a list or `["*"]` for every market. A grant may only set a limit the server enforces. Until it enforces any, every limit must be `"none"` and `markets` `["*"]`, which is the default. When the server enforces some, list them in `enforcedLimits` (for example `['maxOrderNotional', 'markets']`), and only those may be set.
+
+Grants are checked before signing. These throw a `SessionGrantError` with a `code`:
+
+- reserved scopes (`withdraw:owner`, `trade:isolated`);
+- lifetimes past the server caps;
+- a limit that is empty, or set while the server doesn't enforce it (`LIMIT_INVALID`);
+- builder grants asking for `trade:block` or `account:settings`;
+- builder grants without a numeric `maxLoss`. Builder grants need a loss cap, so they're refused until the server enforces `maxLoss`.
+
+Pass `limitCaps` to refuse limits above your own ceilings before the wallet is asked. Caps apply only to enforced limits; a cap on a limit the server doesn't enforce refuses every grant.
+
+Show the owner what they are approving with `SessionTypedData.summarizeGrant(grant)`. Its first line states the risk plainly: _Cannot withdraw; can lose up to `maxLoss` USD by trading_, or, when `maxLoss` is `"none"`, _Cannot withdraw; trading losses are not capped by this session_.
+
 ## Best Practices
 
 ### 1. Environment Variables
@@ -357,6 +393,20 @@ For a full React application example, see: [paradex-react-example](https://githu
 | Method                      | Description                  | Returns          |
 | --------------------------- | ---------------------------- | ---------------- |
 | `Signer.fromEthers(signer)` | Create signer from ethers.js | `EthereumSigner` |
+
+### SessionTypedData (experimental)
+
+| Method                                | Description                                      | Returns           |
+| ------------------------------------- | ------------------------------------------------ | ----------------- |
+| `createGrant(params)`                 | Build a canonical, validated `SessionGrant`      | `SessionGrant`    |
+| `buildGrantEip712(grant, chainId)`    | EIP-712 typed data for an EVM wallet             | `Eip712TypedData` |
+| `buildGrantSnip12(grant)`             | SNIP-12 rev 1 typed data for a Stark owner       | `TypedData`       |
+| `buildPasskeyGrantEip712/Snip12(...)` | Typed data for `PasskeyGrant`                    | typed data        |
+| `buildMintEip712/Snip12(...)`         | Typed data for `SessionMint`                     | typed data        |
+| `hashEip712(typedData)`               | EIP-712 digest                                   | `Hex`             |
+| `hashSnip12(typedData, account)`      | SNIP-12 message hash                             | `Hex`             |
+| `validateGrant(grant)`                | Check format rules and lifetime caps             | `void` (throws)   |
+| `assertGrantActive(grant, now?)`      | Throw `GRANT_EXPIRED` once the grant has expired | `void` (throws)   |
 
 ## Support
 
