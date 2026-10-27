@@ -1461,3 +1461,41 @@ describe('limits the server does not enforce', () => {
     }, 'LIMIT_INVALID');
   });
 });
+
+describe('builder passkeys and caps while limits are unenforced', () => {
+  test('a mint under a builder passkey is refused until maxLoss is enforced', () => {
+    const grant = vectorOf((v) => v.name === 'passkey-grant-builder')
+      .message as unknown as PasskeyGrant;
+    const builderMint = vectorOf(
+      (v) => v.name === 'session-mint-builder-limits',
+    ).message as unknown as SessionMint;
+    const uncapped = { ...builderMint, limits: UNCAPPED_LIMITS };
+    const now = builderMint.expiresAt - 60;
+    expectCode(() => {
+      assertMintWithinCeiling(uncapped, grant, now);
+    }, 'BUILDER_LIMITS_REQUIRED');
+    expect(() => {
+      assertMintWithinCeiling(builderMint, grant, now, ENFORCED);
+    }).not.toThrow();
+  });
+
+  test('a cap on an unenforced limit says why no grant can meet it', () => {
+    let error: unknown;
+    try {
+      createSessionGrant(
+        params({
+          limits: undefined,
+          enforcedLimits: undefined,
+          limitCaps: { maxLoss: '5000' },
+        }),
+      );
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(SessionGrantError);
+    expect((error as SessionGrantError).code).toBe('LIMIT_INVALID');
+    expect((error as Error).message).toContain(
+      'the server does not enforce this limit',
+    );
+  });
+});

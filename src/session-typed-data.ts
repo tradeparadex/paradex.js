@@ -654,6 +654,12 @@ export function validateLimits(
       );
     }
     const cap = caps[key];
+    if (cap != null && !enforced.includes(key)) {
+      throw new SessionGrantError(
+        'LIMIT_INVALID',
+        `${field}.${key}: has a ${cap} cap, but the server does not enforce this limit, so no value can meet it`,
+      );
+    }
     if (
       cap != null &&
       (isNoCap(value) || new BigNumber(value).isGreaterThan(cap))
@@ -885,9 +891,13 @@ function exceeds(message: string): SessionGrantError {
 
 /**
  * Checks a `SessionMint` against the `PasskeyGrant` it mints under, as the
- * server does: same binding, scopes within the ceiling, each limit numeric
- * and at or below a numeric ceiling (anything goes under a `"none"`
- * ceiling), and markets within the ceiling's unless it allows `["*"]`.
+ * server does: same binding and scopes within the ceiling. Only limits the
+ * server enforces are compared: each must be numeric and at or below a
+ * numeric ceiling (anything goes under a `"none"` ceiling), and markets must
+ * be within the ceiling's unless it allows `["*"]`. Unenforced limits are
+ * `"none"` on the mint and skipped, so passkeys registered with numeric
+ * limits keep working. Mints under a builder passkey are refused until the
+ * server enforces `maxLoss`, as builder grants are.
  *
  * @experimental
  */
@@ -923,6 +933,12 @@ export function assertMintWithinCeiling(
     }
   }
   const enforced = options.enforcedLimits ?? DEFAULT_ENFORCED_LIMITS;
+  if (grant.builderAccount !== NO_BUILDER && !enforced.includes('maxLoss')) {
+    throw new SessionGrantError(
+      'BUILDER_LIMITS_REQUIRED',
+      'limits.maxLoss: builder passkeys need a loss cap, which the server does not enforce yet',
+    );
+  }
   // Limits the server does not enforce are "none" on the mint and are not
   // compared, so passkeys registered with numbers keep working.
   for (const key of LIMIT_AMOUNTS) {
