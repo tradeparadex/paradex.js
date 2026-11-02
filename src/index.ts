@@ -72,6 +72,7 @@ export type { EthereumSigner } from './ethereum-signer.js';
 export type { Hex } from './types.js';
 export type { Eip712TypedData, Eip712Domain } from './eip712.js';
 export type {
+  AssertMintOptions,
   Builder,
   Ceiling,
   CreateSessionGrantParams,
@@ -87,4 +88,5 @@ export type {
   SessionMint,
   SessionScope,
   SessionType,
+  ValidatePasskeyGrantOptions,
 } from './session-typed-data.js';
