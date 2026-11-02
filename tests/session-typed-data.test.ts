@@ -3,6 +3,10 @@ import * as Starknet from 'starknet';
 
 import { hashDomain, hashStruct, type Eip712TypedData } from '../src/eip712';
 import {
+  ethersSignerAdapter,
+  type EthereumSigner,
+} from '../src/ethereum-signer';
+import {
   ALL_LIMITS,
   assertGrantActive,
   assertMintWithinCeiling,
@@ -82,19 +86,19 @@ function buildEip712(v: Vector, chainId: number): Eip712TypedData {
       return buildSessionGrantEip712(
         v.message as SessionGrant,
         chainId,
-        ENFORCED,
+        VECTOR_OPTIONS,
       );
     case 'PasskeyGrant':
       return buildPasskeyGrantEip712(
         v.message as PasskeyGrant,
         chainId,
-        ENFORCED,
+        VECTOR_OPTIONS,
       );
     case 'SessionMint':
       return buildSessionMintEip712(
         v.message as SessionMint,
         chainId,
-        ENFORCED,
+        VECTOR_OPTIONS,
       );
   }
 }
@@ -102,11 +106,11 @@ function buildEip712(v: Vector, chainId: number): Eip712TypedData {
 function buildSnip12(v: Vector): Starknet.TypedData {
   switch (v.primaryType) {
     case 'SessionGrant':
-      return buildSessionGrantSnip12(v.message as SessionGrant, ENFORCED);
+      return buildSessionGrantSnip12(v.message as SessionGrant, VECTOR_OPTIONS);
     case 'PasskeyGrant':
-      return buildPasskeyGrantSnip12(v.message as PasskeyGrant, ENFORCED);
+      return buildPasskeyGrantSnip12(v.message as PasskeyGrant, VECTOR_OPTIONS);
     case 'SessionMint':
-      return buildSessionMintSnip12(v.message as SessionMint, ENFORCED);
+      return buildSessionMintSnip12(v.message as SessionMint, VECTOR_OPTIONS);
   }
 }
 
@@ -119,6 +123,8 @@ const BUILDER =
 const T0 = 1760000000;
 /** Tests below use numeric limits, valid once the server enforces them. */
 const ENFORCED = { enforcedLimits: ALL_LIMITS };
+/** Vectors are stamped with the server's clock, so they may sit at the cap. */
+const VECTOR_OPTIONS = { ...ENFORCED, clockSkewSeconds: 0 };
 
 const FULL_LIMITS = {
   maxOrderNotional: '25000',
@@ -356,38 +362,74 @@ describe('refusals', () => {
     );
   });
 
-  test('browser sessions last at most 30 days, API sessions 180', () => {
+  test('browser sessions last at most 30 days, API sessions 180, less clock skew', () => {
+    const skew = 300;
+    expect(() =>
+      createSessionGrant(params({ ttlSeconds: 30 * 86400 - skew })),
+    ).not.toThrow();
     expectCode(
-      () => createSessionGrant(params({ ttlSeconds: 31 * 86400 })),
+      () => createSessionGrant(params({ ttlSeconds: 30 * 86400 - skew + 1 })),
       'TTL_EXCEEDED',
     );
     expect(() =>
-      createSessionGrant(params({ ttlSeconds: 30 * 86400 })),
-    ).not.toThrow();
-    expect(() =>
       createSessionGrant(
-        params({ ttlSeconds: 180 * 86400, sessionType: 'api' }),
+        params({ ttlSeconds: 180 * 86400 - skew, sessionType: 'api' }),
       ),
     ).not.toThrow();
     expectCode(
       () =>
         createSessionGrant(
-          params({ ttlSeconds: 181 * 86400, sessionType: 'api' }),
+          params({ ttlSeconds: 180 * 86400 - skew + 1, sessionType: 'api' }),
         ),
       'TTL_EXCEEDED',
     );
+    // With issuedAt from the server's clock, the full cap is usable.
+    expect(() =>
+      createSessionGrant(
+        params({ ttlSeconds: 30 * 86400, clockSkewSeconds: 0 }),
+      ),
+    ).not.toThrow();
+  });
+
+  test('the default lifetime stays under the cap for sensitive scopes', () => {
+    const g = createSessionGrant(
+      params({ scopes: ['trade', 'trade:block'], ttlSeconds: undefined }),
+    );
+    expect(g.expiresAt - g.issuedAt).toBe(7 * 86400 - 300);
+    // A client clock up to 5 minutes ahead still leaves it within 7 days of
+    // the server's clock.
+    expect(g.expiresAt - (g.issuedAt - 300)).toBeLessThanOrEqual(7 * 86400);
+  });
+
+  test('typed-data builders apply the browser cap unless told otherwise', () => {
+    const sixtyDays = { ...grant(), expiresAt: T0 + 60 * 86400 };
+    expectCode(
+      () => buildSessionGrantEip712(sixtyDays, 1, ENFORCED),
+      'TTL_EXCEEDED',
+    );
+    expectCode(
+      () => buildSessionGrantSnip12(sixtyDays, ENFORCED),
+      'TTL_EXCEEDED',
+    );
+    expect(() =>
+      buildSessionGrantEip712(sixtyDays, 1, {
+        ...ENFORCED,
+        sessionType: 'api',
+      }),
+    ).not.toThrow();
   });
 
   test.each(['trade:block', 'account:settings'] as const)(
     '%s caps the lifetime at 7 days',
     (scope) => {
-      expect(maxSessionTtl(['trade', scope], 'api')).toBe(7 * 86400);
+      expect(maxSessionTtl(['trade', scope], 'api')).toBe(7 * 86400 - 300);
+      expect(maxSessionTtl(['trade', scope], 'api', 0)).toBe(7 * 86400);
       expectCode(
         () =>
           createSessionGrant(
             params({
               scopes: ['trade', scope],
-              ttlSeconds: 7 * 86400 + 1,
+              ttlSeconds: 7 * 86400 - 300 + 1,
               sessionType: 'api',
             }),
           ),
@@ -1496,6 +1538,46 @@ describe('builder passkeys and caps while limits are unenforced', () => {
     expect((error as SessionGrantError).code).toBe('LIMIT_INVALID');
     expect((error as Error).message).toContain(
       'the server does not enforce this limit',
+    );
+  });
+});
+
+describe('expired passkeys and mints', () => {
+  const m = (): SessionMint =>
+    vectorOf((v) => v.name === 'session-mint-first-party')
+      .message as unknown as SessionMint;
+  const g = (): PasskeyGrant =>
+    vectorOf((v) => v.name === 'passkey-grant-first-party')
+      .message as unknown as PasskeyGrant;
+
+  test('a mint at or past its expiry is refused', () => {
+    expect(() => {
+      assertMintWithinCeiling(m(), g(), m().expiresAt - 1);
+    }).not.toThrow();
+    for (const now of [m().expiresAt, m().expiresAt + 10]) {
+      expectCode(() => {
+        assertMintWithinCeiling(m(), g(), now);
+      }, 'GRANT_EXPIRED');
+    }
+  });
+
+  test('a mint under an expired passkey grant is refused', () => {
+    const expired = { ...g(), expiresAt: m().expiresAt - 60 };
+    expectCode(() => {
+      assertMintWithinCeiling(m(), expired, expired.expiresAt);
+    }, 'GRANT_EXPIRED');
+  });
+});
+
+describe('signing with the SDK signer', () => {
+  test('Signer.fromEthers signs grant typed data without casts', async () => {
+    const wallet = ethers.Wallet.createRandom();
+    const signer: EthereumSigner = ethersSignerAdapter(wallet);
+    const typedData = buildSessionGrantEip712(grant(), 42161, ENFORCED);
+    // Type-checks: grant typed data is accepted by EthereumSigner.
+    const signature = await signer.signTypedData(typedData);
+    expect(ethers.recoverAddress(hashEip712(typedData), signature)).toBe(
+      wallet.address,
     );
   });
 });
