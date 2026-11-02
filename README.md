@@ -238,7 +238,7 @@ Every limit is stated: a positive decimal (USD; leverage as a multiple) or `"non
 Grants are checked before signing. These throw a `SessionGrantError` with a `code`:
 
 - reserved scopes (`withdraw:owner`, `trade:isolated`);
-- lifetimes past the server caps;
+- lifetimes past the server caps, less a 5-minute allowance for the client's clock running ahead (`clockSkewSeconds`; pass 0 when `issuedAt` comes from the server's clock);
 - a limit that is empty, or set while the server doesn't enforce it (`LIMIT_INVALID`);
 - builder grants asking for `trade:block` or `account:settings`;
 - builder grants without a numeric `maxLoss`. Builder grants need a loss cap, so they're refused until the server enforces `maxLoss`.

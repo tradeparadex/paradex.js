@@ -708,20 +708,41 @@ function validateBinding(
 
 export type SessionType = 'browser' | 'api';
 
-/** Longest lifetime the server accepts for these scopes. */
+/**
+ * Longest lifetime a grant with these scopes can request. The server measures
+ * the lifetime from the earlier of `issuedAt` and its own clock, and accepts
+ * an `issuedAt` up to 5 minutes ahead of it, so this is the server's cap less
+ * that allowance: a grant at this length still passes when the client's clock
+ * runs ahead.
+ */
 export function maxSessionTtl(
   scopes: readonly SessionScope[],
   sessionType: SessionType = 'browser',
+  clockSkewSeconds: number = MAX_ISSUED_AT_SKEW,
 ): number {
+  let cap: number;
   if (scopes.some((s) => SENSITIVE_SCOPES.includes(s))) {
-    return SESSION_TTL.sensitiveScopeMax;
+    cap = SESSION_TTL.sensitiveScopeMax;
+  } else {
+    cap = sessionType === 'api' ? SESSION_TTL.apiMax : SESSION_TTL.browserMax;
   }
-  return sessionType === 'api' ? SESSION_TTL.apiMax : SESSION_TTL.browserMax;
+  return cap - clockSkewSeconds;
 }
 
 export interface ValidateSessionGrantOptions extends LimitOptions {
-  /** IP-pinned API grants may last up to 180 days. Defaults to `browser`. */
+  /**
+   * Which lifetime cap applies. Defaults to `browser` (30 days), which is
+   * what the server applies when a session is registered; IP-pinned API
+   * grants may last up to 180 days.
+   */
   readonly sessionType?: SessionType;
+  /**
+   * How far ahead of the server the client's clock may run, in seconds.
+   * Lifetimes are kept this far under the server cap. Defaults to 300, the
+   * server's `issuedAt` allowance; pass 0 when `issuedAt` comes from the
+   * server's clock.
+   */
+  readonly clockSkewSeconds?: number;
 }
 
 /**
@@ -745,11 +766,15 @@ export function validateSessionGrant(
     throw invalid('expiresAt', 'must be after issuedAt');
   }
   const ttl = grant.expiresAt - grant.issuedAt;
-  const cap = maxSessionTtl(grant.scopes, options.sessionType);
+  const cap = maxSessionTtl(
+    grant.scopes,
+    options.sessionType,
+    options.clockSkewSeconds,
+  );
   if (ttl > cap) {
     throw new SessionGrantError(
       'TTL_EXCEEDED',
-      `expiresAt: lifetime ${ttl}s exceeds the ${cap}s cap for these scopes`,
+      `expiresAt: lifetime ${ttl}s exceeds the ${cap}s limit for these scopes (the server cap less the clock-skew allowance)`,
     );
   }
 
@@ -967,6 +992,18 @@ export function assertMintWithinCeiling(
       }
     }
   }
+  if (grant.expiresAt <= now) {
+    throw new SessionGrantError(
+      'GRANT_EXPIRED',
+      `passkey grant expired at ${grant.expiresAt}`,
+    );
+  }
+  if (mint.expiresAt <= now) {
+    throw new SessionGrantError(
+      'GRANT_EXPIRED',
+      `mint expired at ${mint.expiresAt}`,
+    );
+  }
   const latest = Math.min(grant.expiresAt, now + ceiling.maxSessionTtl);
   if (mint.expiresAt > latest) {
     throw exceeds(`expiresAt: must be at or before ${latest}`);
@@ -1014,6 +1051,8 @@ export interface CreateSessionGrantParams {
   /** Defaults to 7 days, the browser-session default. */
   readonly ttlSeconds?: number;
   readonly sessionType?: SessionType;
+  /** See {@link ValidateSessionGrantOptions.clockSkewSeconds}. */
+  readonly clockSkewSeconds?: number;
   /** Defaults to {@link DEFAULT_LIMIT_CAPS}. */
   readonly limitCaps?: LimitCaps;
   /** Limits the server enforces; defaults to none (see {@link LimitOptions}). */
@@ -1034,16 +1073,22 @@ export function createSessionGrant(
   params: CreateSessionGrantParams,
 ): SessionGrant {
   const issuedAt = params.issuedAt ?? nowSeconds();
+  const scopes = params.scopes ?? ['trade'];
   const expiresAt =
     params.expiresAt ??
-    issuedAt + (params.ttlSeconds ?? SESSION_TTL.browserDefault);
+    issuedAt +
+      (params.ttlSeconds ??
+        Math.min(
+          SESSION_TTL.browserDefault,
+          maxSessionTtl(scopes, params.sessionType, params.clockSkewSeconds),
+        ));
   const grant: SessionGrant = {
     paradexChain: params.paradexChain,
     environment: params.environment,
     account: canonicalFelt(params.account),
     sessionKey: canonicalFelt(params.sessionKey),
     label: params.label ?? '',
-    scopes: [...(params.scopes ?? ['trade'])],
+    scopes: [...scopes],
     limits: {
       ...(params.limits ?? UNCAPPED_LIMITS),
       markets: [...(params.limits ?? UNCAPPED_LIMITS).markets],
@@ -1066,6 +1111,7 @@ export function createSessionGrant(
   };
   validateSessionGrant(grant, {
     sessionType: params.sessionType,
+    clockSkewSeconds: params.clockSkewSeconds,
     limitCaps: params.limitCaps,
     enforcedLimits: params.enforcedLimits,
   });
@@ -1185,9 +1231,9 @@ function snip12(
 export function buildSessionGrantEip712(
   grant: SessionGrant,
   signatureChainId: number | string | bigint,
-  options: LimitOptions = {},
+  options: ValidateSessionGrantOptions = {},
 ): Eip712TypedData {
-  validateSessionGrant(grant, { ...options, sessionType: 'api' });
+  validateSessionGrant(grant, options);
   return eip712(
     'SessionGrant',
     SESSION_GRANT_EIP712_TYPES,
@@ -1204,9 +1250,9 @@ export function buildSessionGrantEip712(
  */
 export function buildSessionGrantSnip12(
   grant: SessionGrant,
-  options: LimitOptions = {},
+  options: ValidateSessionGrantOptions = {},
 ): Starknet.TypedData {
-  validateSessionGrant(grant, { ...options, sessionType: 'api' });
+  validateSessionGrant(grant, options);
   if (grant.builder.account !== NO_BUILDER) {
     throw new SessionGrantError(
       'BUILDER_REQUIRES_EIP712',

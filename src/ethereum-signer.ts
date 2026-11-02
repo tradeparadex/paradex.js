@@ -4,12 +4,12 @@ export interface TypedData {
   readonly domain: {
     readonly name: string;
     readonly version: string;
-    readonly chainId: string;
+    readonly chainId: string | number;
   };
   readonly primaryType: string;
   readonly types: Record<
     string,
-    Array<{
+    ReadonlyArray<{
       readonly name: string;
       readonly type: string;
     }>
@@ -28,7 +28,8 @@ export function ethersSignerAdapter(
     async signTypedData(typedData) {
       return await ethersSigner.signTypedData(
         typedData.domain,
-        typedData.types,
+        // ethers takes mutable arrays but does not modify them.
+        typedData.types as Record<string, ethers.TypedDataField[]>,
         typedData.message,
       );
     },
