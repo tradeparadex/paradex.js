@@ -1,3 +1,4 @@
+import { hexToBytes } from '@noble/hashes/utils';
 import BigNumber from 'bignumber.js';
 import * as Starknet from 'starknet';
 
@@ -68,6 +69,11 @@ const SENSITIVE_SCOPES: readonly SessionScope[] = [
 export const MAX_PASSKEY_CONCURRENT_SESSIONS = 5;
 /** `issuedAt` may be at most this far ahead of the server clock. */
 const MAX_ISSUED_AT_SKEW = 5 * 60;
+/** Labels are printable ASCII of at most this many characters. */
+const MAX_LABEL_LENGTH = 64;
+const LABEL_RE = /^[\x20-\x7e]*$/;
+/** The only scope a passkey ceiling may carry. */
+const PASSKEY_CEILING_SCOPES: readonly SessionScope[] = ['trade'];
 
 export type SessionGrantErrorCode =
   | 'INVALID_FIELD'
@@ -706,6 +712,16 @@ function validateBinding(
   requireNonce('nonce', noncePresent.nonce);
 }
 
+function requireLabel(field: string, value: unknown): void {
+  if (typeof value !== 'string') throw invalid(field, 'is required');
+  if (value.length > MAX_LABEL_LENGTH || !LABEL_RE.test(value)) {
+    throw invalid(
+      field,
+      `must be printable ASCII of at most ${MAX_LABEL_LENGTH} characters`,
+    );
+  }
+}
+
 export type SessionType = 'browser' | 'api';
 
 /**
@@ -757,7 +773,7 @@ export function validateSessionGrant(
   validateBinding(grant, grant);
   requireCanonicalHex('sessionKey', grant.sessionKey, FELT_PRIME);
   if (grant.sessionKey === '0x0') throw invalid('sessionKey', 'is zero');
-  if (typeof grant.label !== 'string') throw invalid('label', 'is required');
+  requireLabel('label', grant.label);
   validateScopes(grant.scopes);
   requireUniqueAddresses('subaccounts', grant.subaccounts, grant.account);
   requireTimestamp('issuedAt', grant.issuedAt);
@@ -809,9 +825,18 @@ export function validateSessionGrant(
   validateLimits(grant.limits, hasBuilder, 'limits', options);
 }
 
+export interface ValidatePasskeyGrantOptions extends LimitOptions {
+  /**
+   * Whether the server accepts subaccounts in a passkey ceiling. Defaults to
+   * false, as the server refuses `ceiling.subaccounts` and
+   * `includeFutureSubaccounts` until it enables them.
+   */
+  readonly passkeySubaccounts?: boolean;
+}
+
 export function validatePasskeyGrant(
   grant: PasskeyGrant,
-  options: LimitOptions = {},
+  options: ValidatePasskeyGrantOptions = {},
 ): void {
   validateBinding(grant, grant);
   requireAddress('builderAccount', grant.builderAccount, false);
@@ -843,15 +868,22 @@ export function validatePasskeyGrant(
   if (typeof passkey.rpId !== 'string' || passkey.rpId === '') {
     throw invalid('passkey.rpId', 'is required');
   }
-  if (typeof passkey.label !== 'string') {
-    throw invalid('passkey.label', 'is required');
-  }
+  requireLabel('passkey.label', passkey.label);
 
   const ceiling = grant.ceiling;
   if (ceiling == null || typeof ceiling !== 'object') {
     throw invalid('ceiling', 'is required');
   }
   validateScopes(ceiling.scopes, 'ceiling.scopes');
+  const notCeilingScope = ceiling.scopes.find(
+    (s) => !PASSKEY_CEILING_SCOPES.includes(s),
+  );
+  if (notCeilingScope != null) {
+    throw new SessionGrantError(
+      'SCOPE_NOT_ALLOWED',
+      `ceiling.scopes: "${notCeilingScope}" cannot be in a passkey ceiling`,
+    );
+  }
   validateLimits(
     ceiling.limits,
     grant.builderAccount !== NO_BUILDER,
@@ -865,6 +897,15 @@ export function validatePasskeyGrant(
   );
   if (typeof ceiling.includeFutureSubaccounts !== 'boolean') {
     throw invalid('ceiling.includeFutureSubaccounts', 'must be a boolean');
+  }
+  if (
+    options.passkeySubaccounts !== true &&
+    (ceiling.subaccounts.length > 0 || ceiling.includeFutureSubaccounts)
+  ) {
+    throw invalid(
+      'ceiling.subaccounts',
+      'passkey subaccounts are not enabled on the server',
+    );
   }
   if (ceiling.includeFutureSubaccounts && grant.builderAccount !== NO_BUILDER) {
     throw invalid(
@@ -910,6 +951,16 @@ export function validateSessionMint(
   requireTimestamp('expiresAt', mint.expiresAt);
 }
 
+export interface AssertMintOptions extends LimitOptions {
+  /**
+   * How far ahead of the server the client's clock may run, in seconds. The
+   * server bounds a mint's `expiresAt` by its own clock plus the ceiling's
+   * `maxSessionTtl`, so the bound here is kept this far under it. Defaults
+   * to 300; pass 0 when `now` comes from the server's clock.
+   */
+  readonly clockSkewSeconds?: number;
+}
+
 function exceeds(message: string): SessionGrantError {
   return new SessionGrantError('EXCEEDS_CEILING', message);
 }
@@ -930,12 +981,16 @@ export function assertMintWithinCeiling(
   mint: SessionMint,
   grant: PasskeyGrant,
   now: number = nowSeconds(),
-  options: LimitOptions = {},
+  options: AssertMintOptions = {},
 ): void {
   validateSessionMint(mint, options);
   // The passkey was registered earlier, possibly with limits the server now
   // leaves unenforced; check its format only.
-  validatePasskeyGrant(grant, { limitCaps: {}, enforcedLimits: ALL_LIMITS });
+  validatePasskeyGrant(grant, {
+    limitCaps: {},
+    enforcedLimits: ALL_LIMITS,
+    passkeySubaccounts: true,
+  });
   if (
     mint.paradexChain !== grant.paradexChain ||
     mint.environment !== grant.environment
@@ -1004,7 +1059,8 @@ export function assertMintWithinCeiling(
       `mint expired at ${mint.expiresAt}`,
     );
   }
-  const latest = Math.min(grant.expiresAt, now + ceiling.maxSessionTtl);
+  const skew = options.clockSkewSeconds ?? MAX_ISSUED_AT_SKEW;
+  const latest = Math.min(grant.expiresAt, now + ceiling.maxSessionTtl - skew);
   if (mint.expiresAt > latest) {
     throw exceeds(`expiresAt: must be at or before ${latest}`);
   }
@@ -1271,7 +1327,7 @@ export function buildSessionGrantSnip12(
 export function buildPasskeyGrantEip712(
   grant: PasskeyGrant,
   signatureChainId: number | string | bigint,
-  options: LimitOptions = {},
+  options: ValidatePasskeyGrantOptions = {},
 ): Eip712TypedData {
   validatePasskeyGrant(grant, options);
   return eip712(
@@ -1285,7 +1341,7 @@ export function buildPasskeyGrantEip712(
 /** @experimental */
 export function buildPasskeyGrantSnip12(
   grant: PasskeyGrant,
-  options: LimitOptions = {},
+  options: ValidatePasskeyGrantOptions = {},
 ): Starknet.TypedData {
   validatePasskeyGrant(grant, options);
   return snip12(
@@ -1351,12 +1407,7 @@ export function sessionMintChallenge(
   options: LimitOptions = {},
 ): string {
   const hash = hashSnip12(buildSessionMintSnip12(mint, options), mint.account);
-  const bytes = new Uint8Array(32);
-  let n = BigInt(hash);
-  for (let i = 31; i >= 0; i--) {
-    bytes[i] = Number(n & 0xffn);
-    n >>= 8n;
-  }
+  const bytes = hexToBytes(hash.slice(2));
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary)

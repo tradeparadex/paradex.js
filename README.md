@@ -242,6 +242,10 @@ Grants are checked before signing. These throw a `SessionGrantError` with a `cod
 - a limit that is empty, or set while the server doesn't enforce it (`LIMIT_INVALID`);
 - builder grants asking for `trade:block` or `account:settings`;
 - builder grants without a numeric `maxLoss`. Builder grants need a loss cap, so they're refused until the server enforces `maxLoss`.
+- labels over 64 characters or outside printable ASCII;
+- passkey ceilings with any scope but `trade`, or with subaccounts (refused until the server enables them; pass `passkeySubaccounts: true` once it does).
+
+`assertMintWithinCeiling` keeps a mint's `expiresAt` the same 5 minutes inside the ceiling's `maxSessionTtl`; pass `clockSkewSeconds: 0` when `now` comes from the server's clock.
 
 Pass `limitCaps` to refuse limits above your own ceilings before the wallet is asked. Caps apply only to enforced limits; a cap on a limit the server doesn't enforce refuses every grant.
 

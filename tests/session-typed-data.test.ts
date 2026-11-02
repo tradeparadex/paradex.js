@@ -40,6 +40,7 @@ import {
   type PasskeyGrant,
   type SessionGrant,
   type SessionMint,
+  type SessionScope,
 } from '../src/session-typed-data';
 
 import vectorFile from './fixtures/session-typed-data-vectors.json';
@@ -124,7 +125,12 @@ const T0 = 1760000000;
 /** Tests below use numeric limits, valid once the server enforces them. */
 const ENFORCED = { enforcedLimits: ALL_LIMITS };
 /** Vectors are stamped with the server's clock, so they may sit at the cap. */
-const VECTOR_OPTIONS = { ...ENFORCED, clockSkewSeconds: 0 };
+// The vectors were made under a policy that allows passkey subaccounts.
+const VECTOR_OPTIONS = {
+  ...ENFORCED,
+  clockSkewSeconds: 0,
+  passkeySubaccounts: true,
+};
 
 const FULL_LIMITS = {
   maxOrderNotional: '25000',
@@ -537,10 +543,18 @@ describe('refusals', () => {
     );
   });
 
-  test('SNIP-12 strings must be ASCII', () => {
-    const g = grant({ label: 'café' });
-    expect(() => buildSessionGrantEip712(g, 1, ENFORCED)).not.toThrow();
-    expectCode(() => buildSessionGrantSnip12(g, ENFORCED), 'INVALID_FIELD');
+  test('labels are printable ASCII of at most 64 characters', () => {
+    expect(() =>
+      buildSessionGrantEip712(grant({ label: 'x'.repeat(64) }), 1, ENFORCED),
+    ).not.toThrow();
+    for (const label of ['x'.repeat(65), 'Paradéx', 'tab\there']) {
+      const g = grant({ label });
+      expectCode(
+        () => buildSessionGrantEip712(g, 1, ENFORCED),
+        'INVALID_FIELD',
+      );
+      expectCode(() => buildSessionGrantSnip12(g, ENFORCED), 'INVALID_FIELD');
+    }
   });
 
   test.each<[string, Partial<SessionGrant>]>([
@@ -711,8 +725,9 @@ describe('PasskeyGrant', () => {
         includeFutureSubaccounts: true,
       },
     };
+    const options = { ...ENFORCED, passkeySubaccounts: true };
     expectCode(() => {
-      validatePasskeyGrant(g, ENFORCED);
+      validatePasskeyGrant(g, options);
     }, 'INVALID_FIELD');
     expect(() => {
       validatePasskeyGrant(
@@ -720,7 +735,7 @@ describe('PasskeyGrant', () => {
           ...g,
           ceiling: { ...g.ceiling, includeFutureSubaccounts: false },
         },
-        ENFORCED,
+        options,
       );
     }).not.toThrow();
   });
@@ -1566,6 +1581,83 @@ describe('expired passkeys and mints', () => {
     expectCode(() => {
       assertMintWithinCeiling(m(), expired, expired.expiresAt);
     }, 'GRANT_EXPIRED');
+  });
+});
+
+describe('passkey ceilings and labels the server accepts', () => {
+  const withCeiling = (
+    ceiling: Partial<PasskeyGrant['ceiling']>,
+  ): PasskeyGrant => {
+    const g = passkeyGrant();
+    return { ...g, ceiling: { ...g.ceiling, ...ceiling } };
+  };
+
+  test.each<SessionScope[]>([
+    ['trade', 'trade:rfq'],
+    ['trade', 'trade:block'],
+    ['trade', 'account:settings'],
+  ])('a ceiling of %p is refused', (...scopes) => {
+    const g = withCeiling({ scopes });
+    expectCode(
+      () => buildPasskeyGrantEip712(g, 1, ENFORCED),
+      'SCOPE_NOT_ALLOWED',
+    );
+    expectCode(() => buildPasskeyGrantSnip12(g, ENFORCED), 'SCOPE_NOT_ALLOWED');
+  });
+
+  test('ceiling subaccounts are refused unless the server allows them', () => {
+    const v = vectorOf(
+      (x) => x.name === 'passkey-grant-stark-owner-subaccounts',
+    );
+    const g = v.message as PasskeyGrant;
+    expect(g.ceiling.subaccounts.length).toBeGreaterThan(0);
+    expectCode(() => buildPasskeyGrantSnip12(g, ENFORCED), 'INVALID_FIELD');
+    expect(() =>
+      buildPasskeyGrantSnip12(g, { ...ENFORCED, passkeySubaccounts: true }),
+    ).not.toThrow();
+    const future = withCeiling({ includeFutureSubaccounts: true });
+    expectCode(() => {
+      validatePasskeyGrant(future, ENFORCED);
+    }, 'INVALID_FIELD');
+  });
+
+  test('passkey labels are printable ASCII of at most 64 characters', () => {
+    const g = passkeyGrant();
+    const labelled = (label: string): PasskeyGrant => ({
+      ...g,
+      passkey: { ...g.passkey, label },
+    });
+    expect(() =>
+      buildPasskeyGrantEip712(labelled('x'.repeat(64)), 1, ENFORCED),
+    ).not.toThrow();
+    for (const label of ['x'.repeat(65), 'Clé']) {
+      expectCode(
+        () => buildPasskeyGrantEip712(labelled(label), 1, ENFORCED),
+        'INVALID_FIELD',
+      );
+    }
+  });
+
+  test('a mint at the ceiling lifetime leaves room for clock skew', () => {
+    const m = structuredClone(
+      vectorOf((v) => v.name === 'session-mint-builder-limits').message,
+    ) as unknown as SessionMint;
+    const g = structuredClone(
+      vectorOf((v) => v.name === 'passkey-grant-builder').message,
+    ) as unknown as PasskeyGrant;
+    const atCap = m.expiresAt - g.ceiling.maxSessionTtl;
+    expectCode(() => {
+      assertMintWithinCeiling(m, g, atCap, ENFORCED);
+    }, 'EXCEEDS_CEILING');
+    expect(() => {
+      assertMintWithinCeiling(m, g, atCap + 300, ENFORCED);
+    }).not.toThrow();
+    expect(() => {
+      assertMintWithinCeiling(m, g, atCap, {
+        ...ENFORCED,
+        clockSkewSeconds: 0,
+      });
+    }).not.toThrow();
   });
 });
 
