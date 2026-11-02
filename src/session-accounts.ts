@@ -33,6 +33,8 @@ const WS_OPEN = 1;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
 const DEFAULT_RPC_TIMEOUT_MS = 10_000;
+/** `/auth` is rate-limited per IP; `start()` mints this many at a time. */
+const START_CONCURRENCY = 10;
 
 export type GrantState = 'active' | 'revoked' | 'expired';
 
@@ -60,7 +62,11 @@ export interface SessionAccountsParams {
   readonly rpcTimeoutMs?: number;
   /** Seconds since the epoch. */
   readonly now?: () => number;
-  /** Called once when the grant is revoked or expires. */
+  /**
+   * Called once when the grant is revoked or expires. The key record stays
+   * in storage until `connector.forget(session)` deletes it; do that here, or
+   * `restore()` keeps returning the ended session until it expires.
+   */
   readonly onDropped?: (reason: SessionGrantError) => void;
 }
 
@@ -190,9 +196,24 @@ export class SessionAccounts {
     return this.dropped;
   }
 
-  /** Mints a JWT for every listed account. */
+  /**
+   * Mints a JWT for every listed account, at most 10 at a time to stay
+   * inside the server's per-IP `/auth` rate limit.
+   */
   async start(): Promise<void> {
-    await Promise.all(this.accounts.map(async (a) => await this.getJwt(a)));
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < this.accounts.length) {
+        const account = this.accounts[next++];
+        if (account != null) await this.getJwt(account);
+      }
+    };
+    await Promise.all(
+      Array.from(
+        { length: Math.min(START_CONCURRENCY, this.accounts.length) },
+        worker,
+      ),
+    );
   }
 
   /** A valid JWT for `account`, minted or refreshed as needed. */
@@ -214,12 +235,14 @@ export class SessionAccounts {
       throw new Error('Sessions never use on_behalf_of; route by account');
     }
     const id = this.resolveAccount(account);
-    let result = await this.send(req, await this.getJwt(id));
+    const token = await this.getJwt(id);
+    let result = await this.send(req, token);
     // Only a 401 means the token was refused; a 403 is about the request.
     if (result instanceof SessionApiError && result.status === 401) {
       await this.confirmActive();
-      // The token may have expired in flight: mint once and retry.
-      this.tokens.delete(id);
+      // The token may have expired in flight: mint once and retry. Another
+      // request may already have replaced it; keep that one.
+      if (this.tokens.get(id)?.token === token) this.tokens.delete(id);
       result = await this.send(req, await this.getJwt(id));
       if (result instanceof SessionApiError && result.status === 401) {
         await this.confirmActive();
@@ -340,6 +363,11 @@ export class SessionAccounts {
     this.params.onDropped?.(reason);
   }
 
+  /** @internal The cached JWT for `account`, if any. */
+  cachedToken(account: string): string | undefined {
+    return this.tokens.get(account)?.token;
+  }
+
   /** @internal The socket for `account` has no subscriptions left. */
   socketIdle(account: string, socket: AccountSocket): void {
     if (this.sockets.get(account) !== socket) return;
@@ -363,7 +391,8 @@ export class SessionAccounts {
 
   /**
    * `GET /v2/sessions/{grant_id}/status` needs no token, so it still answers
-   * once the session's tokens are refused. 404 means the grant is gone.
+   * once the session's tokens are refused. A 404 with `NOT_FOUND` means the
+   * grant is gone; any other 404 (e.g. an unrouted path) is transient.
    */
   private async checkGrantState(): Promise<GrantState | undefined> {
     let response;
@@ -378,7 +407,8 @@ export class SessionAccounts {
     }
     let state: unknown;
     if (response.status === 404) {
-      state = 'revoked';
+      const error = (response.body as { error?: unknown } | null)?.error;
+      if (error === 'NOT_FOUND') state = 'revoked';
     } else if (response.status >= 200 && response.status < 300) {
       state = (response.body as Partial<GrantStatus> | null)?.state;
     }
@@ -770,6 +800,11 @@ class AccountSocket {
       throw error;
     }
     this.owner.scheduleRefresh(this.account);
+    // A REST call may have minted a newer token while `auth` was in flight.
+    const latest = this.owner.cachedToken(this.account);
+    if (latest != null && latest !== this.authedToken) {
+      void this.reauthenticate(latest);
+    }
     this.reconnectAttempts = 0;
     if (this.reconnectTimer != null) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;

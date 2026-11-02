@@ -440,4 +440,29 @@ describe('SessionConnector.restore', () => {
     // Unreadable records are left for a newer SDK, not deleted.
     expect(await storage.list()).toHaveLength(3);
   });
+
+  test('a newer record without a grant id is left for a newer SDK', async () => {
+    const storage = memorySessionStorage();
+    const { connector } = setup({ storage });
+    const s = await connector.open({ limits: LIMITS, account: MAIN });
+    await storage.put({ ...s.key.record, version: 2 as 1, grantId: undefined });
+    expect(await connector.restore()).toEqual([]);
+    expect(await storage.list()).toHaveLength(1);
+  });
+
+  test('a record registered by another tab mid-restore is kept', async () => {
+    const storage = memorySessionStorage();
+    const { connector } = setup({ storage });
+    const s = await connector.open({ limits: LIMITS, account: MAIN });
+    const pending = { ...s.key.record, grant: undefined, grantId: undefined };
+    // restore() lists the record before open() in another tab registers it.
+    const racing: SessionStorage = {
+      ...storage,
+      list: async () => [pending],
+    };
+    const other = setup({ storage: racing }).connector;
+    const restored = await other.restore();
+    expect(restored.map((x) => x.grantId)).toEqual([s.grantId]);
+    expect(await storage.get(s.key.publicKey)).toBeDefined();
+  });
 });

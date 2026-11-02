@@ -275,6 +275,30 @@ describe('JWTs', () => {
   });
 });
 
+describe('start', () => {
+  test('mints at most 10 JWTs at a time', async () => {
+    const subaccounts = Array.from(
+      { length: 32 },
+      (_, i) => `0x${(0x100 + i).toString(16)}`,
+    );
+    let active = 0;
+    let peak = 0;
+    const h = setup({
+      grant: grantFor({ subaccounts }),
+      route: async (req) => {
+        if (!req.url.endsWith('/v1/auth')) return undefined;
+        peak = Math.max(peak, ++active);
+        await new Promise((resolve) => setImmediate(resolve));
+        active--;
+        return undefined;
+      },
+    });
+    await h.accounts.start();
+    expect(h.authCalls()).toHaveLength(33);
+    expect(peak).toBe(10);
+  });
+});
+
 describe('REST routing', () => {
   test('sends each request with its own account JWT', async () => {
     const { accounts, transport } = setup();
@@ -355,6 +379,34 @@ describe('REST routing', () => {
       await accounts.request(MAIN, { method: 'GET', path: '/v1/positions' }),
     ).toEqual({ ok: true });
     expect(authCalls(MAIN)).toHaveLength(2);
+  });
+
+  test('a late 401 on an old token keeps the token another request minted', async () => {
+    let releaseLate: () => void = () => {};
+    const late = new Promise<void>((resolve) => {
+      releaseLate = resolve;
+    });
+    const old = { token: '' };
+    let refusals = 0;
+    const h = setup({
+      route: async (req) => {
+        if (!req.url.endsWith('/v1/x')) return undefined;
+        if (req.headers.Authorization !== `Bearer ${old.token}`) {
+          return undefined;
+        }
+        if (refusals++ === 1) await late;
+        return { status: 401, body: { error: 'TOKEN_EXPIRED' } };
+      },
+    });
+    old.token = await h.accounts.getJwt(MAIN);
+    jest.setSystemTime((T0 + 5) * 1000);
+    const first = h.accounts.request(MAIN, { method: 'GET', path: '/v1/x' });
+    const second = h.accounts.request(MAIN, { method: 'GET', path: '/v1/x' });
+    expect(await first).toEqual({ ok: true });
+    releaseLate();
+    expect(await second).toEqual({ ok: true });
+    // One mint at start, one after the first 401; the late 401 reuses it.
+    expect(h.authCalls(MAIN)).toHaveLength(2);
   });
 
   test('surfaces non-401 errors', async () => {
@@ -599,6 +651,20 @@ describe('revocation', () => {
       );
     },
   );
+
+  test('a 404 that is not a missing grant does not drop the session', async () => {
+    const h = setup({
+      route: (req) =>
+        req.url === STATUS_URL
+          ? { status: 404, body: { message: 'Not Found' } }
+          : undefined,
+    });
+    h.server.state = 'revoked';
+    const error = await caught(h.accounts.getJwt(MAIN));
+    expect(error).toBeInstanceOf(SessionApiError);
+    expect(h.calls('/status')).toHaveLength(1);
+    expect(h.onDropped).not.toHaveBeenCalled();
+  });
 
   test('other 400s from /auth do not trigger a status check', async () => {
     const h = setup({
@@ -920,6 +986,36 @@ describe('websockets', () => {
     // The refresh timer then finds the socket already on a fresh token and
     // only re-auths when it mints again.
     expect(authCalls(MAIN)).toHaveLength(2);
+  });
+
+  test('a token minted while the socket authenticates moves it onto that token', async () => {
+    let held: { id: number } | undefined;
+    socketFactory = (url) => {
+      const ws = new MockSocket(url);
+      const reply = ws.respond;
+      ws.respond = (msg) => {
+        if (msg.method === 'auth' && held == null) {
+          held = msg;
+          return undefined;
+        }
+        return reply(msg);
+      };
+      return ws;
+    };
+    const { accounts } = setup({ jwtTtl: 300 });
+    const subscribed = accounts.subscribe(MAIN, 'account', jest.fn());
+    await waitFor(() => held != null);
+    const ws = MockSocket.instances[0];
+    jest.setSystemTime((T0 + 241) * 1000);
+    const fresh = await accounts.getJwt(MAIN);
+    expect(ws?.sent[0]?.params.bearer).not.toBe(fresh);
+    ws?.receive({ jsonrpc: '2.0', id: held?.id, result: {} });
+    await subscribed;
+    await waitFor(
+      () => (ws?.methods().filter((m) => m === 'auth').length ?? 0) === 2,
+    );
+    const auths = ws?.sent.filter((m) => m.method === 'auth');
+    expect(auths?.[1]?.params.bearer).toBe(fresh);
   });
 
   test('a socket opened on a cached JWT is still re-authenticated', async () => {

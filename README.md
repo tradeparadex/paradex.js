@@ -278,7 +278,11 @@ const accounts = new Paradex.SessionAccounts({
   session,
   environment: 'testnet',
   paradexChain: config.paradexChainId,
-  onDropped: (reason) => console.warn('Session ended:', reason.code),
+  onDropped: (reason) => {
+    console.warn('Session ended:', reason.code);
+    // Delete the key so the next load does not restore the ended session.
+    void connector.forget(session);
+  },
 });
 await accounts.start();
 
@@ -294,7 +298,7 @@ const unsubscribe = await accounts.subscribe('0x...', 'orders.ALL', (data) =>
 );
 ```
 
-> `POST /v2/sessions` is not live yet; the request shape may change before release.
+> `/v2/sessions` is experimental; its request and response shapes may change.
 
 ## Best Practices
 

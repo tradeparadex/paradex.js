@@ -1,5 +1,6 @@
 import { hashTypedData } from './eip712.js';
 import {
+  assertRecordVersion,
   memorySessionStorage,
   SessionKey,
   type SessionStorage,
@@ -96,8 +97,8 @@ function sameAccounts(listed: unknown, grant: SessionGrant): boolean {
  * Opens trading sessions for a wallet-owned account: generates the session
  * key in the page, asks the owner to sign one grant, and registers it.
  *
- * @experimental `POST /v2/sessions` is not released yet; the request and
- * response shapes may change.
+ * @experimental The request and response shapes of `/v2/sessions` may
+ * change.
  */
 export class SessionConnector {
   readonly environment: SessionEnvironment;
@@ -243,6 +244,8 @@ export class SessionConnector {
   private async fromRecord(
     record: StoredSession,
   ): Promise<Session | undefined> {
+    // A record from a newer SDK is unreadable here; leave it in place.
+    assertRecordVersion(record);
     const { grant, grantId, ownerSignature, signatureChainId, publicKey } =
       record;
     if (
@@ -251,6 +254,9 @@ export class SessionConnector {
       ownerSignature == null ||
       signatureChainId == null
     ) {
+      // `open()` in another tab may have registered it since it was listed.
+      const latest = await this.storage.get(publicKey);
+      if (latest?.grantId != null) return await this.fromRecord(latest);
       await this.storage.delete(publicKey);
       return undefined;
     }

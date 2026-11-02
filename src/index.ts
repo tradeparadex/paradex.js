@@ -53,7 +53,7 @@ export const SessionTypedData = {
 /**
  * Session connector: open a session with one owner signature, then trade
  * every account the grant lists with the session key.
- * @experimental `POST /v2/sessions` is not released yet.
+ * @experimental The shapes of `/v2/sessions` may change.
  */
 export const Session = {
   ownerSignerFromEip1193: _SessionOwnerSigner.eip1193OwnerSigner,

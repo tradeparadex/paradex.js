@@ -3,6 +3,17 @@ import * as Starknet from 'starknet';
 import type { SessionGrant } from './session-typed-data.js';
 import type { Hex } from './types.js';
 
+/** Throws for a record written in a format this SDK cannot read. */
+export function assertRecordVersion(
+  record: Pick<StoredSession, 'version'>,
+): void {
+  if (record.version !== 1) {
+    throw new Error(
+      `Unsupported session record version ${String(record.version)}`,
+    );
+  }
+}
+
 export interface StoredSession {
   readonly version: 1;
   /** The session public key; also the storage id. */
@@ -206,11 +217,7 @@ export class SessionKey {
 
   /** Wraps a stored record. The key is checked on first use. */
   static fromRecord(record: StoredSession): SessionKey {
-    if (record.version !== 1) {
-      throw new Error(
-        `Unsupported session record version ${String(record.version)}`,
-      );
-    }
+    assertRecordVersion(record);
     if (record.wrappingKey.extractable) {
       throw new Error('Session wrapping key must be non-extractable');
     }
