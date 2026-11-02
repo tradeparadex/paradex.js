@@ -63,6 +63,29 @@ describe('SessionKey', () => {
     expect(verifyStark(key.publicKey, '0x1', signature)).toBe(false);
   });
 
+  test('the decrypted private key is zeroed after signing', async () => {
+    const key = await SessionKey.generate();
+    const subtle = globalThis.crypto.subtle;
+    const decrypt = subtle.decrypt.bind(subtle);
+    const seen: ArrayBuffer[] = [];
+    const spy = jest
+      .spyOn(subtle, 'decrypt')
+      .mockImplementation(async (...args) => {
+        const plaintext = await decrypt(...args);
+        seen.push(plaintext);
+        return plaintext;
+      });
+    try {
+      await key.signHash('0x1234');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(seen).toHaveLength(1);
+    expect(
+      new Uint8Array(seen[0] ?? new ArrayBuffer(1)).every((b) => b === 0),
+    ).toBe(true);
+  });
+
   test('ciphertext is bound to the public key and tamper-evident', async () => {
     const key = await SessionKey.generate();
     const other = await SessionKey.generate();

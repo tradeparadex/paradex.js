@@ -102,9 +102,22 @@ function pathMentionsOnBehalfOf(path: string): boolean {
   return decoded.toLowerCase().includes('on_behalf_of');
 }
 
-/** `/auth` refusals that mean "this session key was not accepted". */
+/** Codes the server gives `/auth` for a session that no longer exists. */
+const SESSION_GONE_CODES: readonly string[] = [
+  'SESSION_REVOKED',
+  'SESSION_EXPIRED',
+];
+
+/**
+ * `/auth` refusals that mean "this session key was not accepted". They
+ * trigger a status check; only the grant's status ever drops a session.
+ */
 function isAuthRefusal(error: SessionApiError): boolean {
-  return error.status === 401 || error.status === 403;
+  return (
+    error.status === 401 ||
+    error.status === 403 ||
+    (error.code != null && SESSION_GONE_CODES.includes(error.code))
+  );
 }
 
 /** RFQ endpoints do not accept session tokens yet, even with `trade:rfq`. */
@@ -513,7 +526,12 @@ export class SessionAccounts {
     const expiresAt = Math.min(jwtExpiry(token) ?? expiration, expiration);
     const cached = { token, mintedAt: now, expiresAt };
     this.tokens.set(account, cached);
-    if (this.sockets.has(account)) this.scheduleRefresh(account);
+    const socket = this.sockets.get(account);
+    if (socket != null) {
+      this.scheduleRefresh(account);
+      // A REST call may have minted this token; move the socket onto it.
+      void socket.reauthenticate(token);
+    }
     return token;
   }
 
@@ -610,6 +628,8 @@ class AccountSocket {
   private reconnectAttempts = 0;
   private reconnectTimer: Timer | undefined;
   private closed = false;
+  /** The token this connection last authenticated with. */
+  private authedToken: string | undefined;
 
   constructor(
     private readonly owner: SessionAccounts,
@@ -640,7 +660,11 @@ class AccountSocket {
   }
 
   async reauthenticate(token: string): Promise<void> {
-    if (this.ws?.readyState !== WS_OPEN) return;
+    // Not authenticated yet (open() will use the newest token), or already
+    // on this token.
+    if (this.ws?.readyState !== WS_OPEN || this.authedToken == null) return;
+    if (this.authedToken === token) return;
+    this.authedToken = token;
     try {
       await this.call('auth', { bearer: token });
     } catch {
@@ -709,6 +733,7 @@ class AccountSocket {
     const ws = this.owner.createWebSocket();
     this.ws = ws;
     this.subscribed.clear();
+    this.authedToken = undefined;
     try {
       await new Promise<void>((resolve, reject) => {
         ws.onopen = () => {
@@ -737,6 +762,7 @@ class AccountSocket {
     try {
       const token = await this.owner.getJwt(this.account);
       await this.call('auth', { bearer: token });
+      this.authedToken = token;
     } catch (error) {
       this.ready = undefined;
       ws.close();
@@ -805,6 +831,7 @@ class AccountSocket {
     this.ws = undefined;
     this.ready = undefined;
     this.subscribed.clear();
+    this.authedToken = undefined;
     this.rejectPending(new Error('websocket closed'));
     this.scheduleReconnect();
   }

@@ -105,9 +105,15 @@ function setup(
     const routed = await options.route?.(req);
     if (routed != null) return routed;
     if (req.url.endsWith('/v1/auth')) {
-      return server.state === 'active'
-        ? auth(req)
-        : { status: 401, body: { error: 'INVALID_SIGNATURE' } };
+      // As the server does: a revoked or expired session key gets a 400.
+      if (server.state === 'active') return auth(req);
+      return {
+        status: 400,
+        body: {
+          error:
+            server.state === 'expired' ? 'SESSION_EXPIRED' : 'SESSION_REVOKED',
+        },
+      };
     }
     if (req.url === STATUS_URL && req.method === 'GET') {
       return server.state === 'gone'
@@ -574,6 +580,40 @@ describe('revocation', () => {
     expectCode(await caught(h.accounts.getJwt(MAIN)), 'GRANT_REVOKED');
   });
 
+  test.each([
+    ['revoked', 'GRANT_REVOKED'],
+    ['expired', 'GRANT_EXPIRED'],
+  ] as const)(
+    'a 400 from /auth when the session is %s checks status and drops',
+    async (state, code) => {
+      const h = setup();
+      h.server.state = state;
+      expectCode(await caught(h.accounts.start()), code);
+      expect(h.calls('/status')).toHaveLength(1);
+      expect(h.onDropped).toHaveBeenCalledTimes(1);
+      expectCode(
+        await caught(
+          h.accounts.request(MAIN, { method: 'GET', path: '/v1/x' }),
+        ),
+        code,
+      );
+    },
+  );
+
+  test('other 400s from /auth do not trigger a status check', async () => {
+    const h = setup({
+      route: (req) =>
+        req.url.endsWith('/v1/auth')
+          ? { status: 400, body: { error: 'INVALID_TIMESTAMP' } }
+          : undefined,
+    });
+    expect(await caught(h.accounts.getJwt(MAIN))).toMatchObject({
+      status: 400,
+    });
+    expect(h.calls('/status')).toHaveLength(0);
+    expect(h.onDropped).not.toHaveBeenCalled();
+  });
+
   test('a refused /auth on an active grant is an error, not a drop', async () => {
     const h = setup({
       route: (req) =>
@@ -863,6 +903,23 @@ describe('websockets', () => {
     ws.respond = (msg) => ({ id: msg.id, result: {} });
     await accounts.subscribe(MAIN, 'bogus', jest.fn());
     expect(ws.methods().filter((m) => m === 'subscribe')).toHaveLength(3);
+  });
+
+  test('a token minted by a REST call moves the socket onto it', async () => {
+    const { accounts, authCalls } = setup({ jwtTtl: 300 });
+    await accounts.subscribe(MAIN, 'account', jest.fn());
+    const ws = MockSocket.instances[0];
+    const first = ws?.sent[0]?.params.bearer;
+    // Inside the refresh margin, before the refresh timer: REST re-mints.
+    jest.setSystemTime((T0 + 241) * 1000);
+    const fresh = await accounts.getJwt(MAIN);
+    expect(fresh).not.toBe(first);
+    await waitFor(() => ws?.sent.length === 3);
+    expect(ws?.methods()).toEqual(['auth', 'subscribe', 'auth']);
+    expect(ws?.sent[2]?.params.bearer).toBe(fresh);
+    // The refresh timer then finds the socket already on a fresh token and
+    // only re-auths when it mints again.
+    expect(authCalls(MAIN)).toHaveLength(2);
   });
 
   test('a socket opened on a cached JWT is still re-authenticated', async () => {
