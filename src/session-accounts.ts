@@ -50,8 +50,12 @@ export interface GrantStatus {
 
 export interface SessionAccountsParams {
   readonly session: Pick<Session, 'grant' | 'key' | 'grantId'>;
-  readonly environment: SessionEnvironment;
-  readonly paradexChain: string;
+  /**
+   * Optional: the grant carries its environment and chain. When given, a
+   * grant for anything else is refused.
+   */
+  readonly environment?: SessionEnvironment;
+  readonly paradexChain?: string;
   readonly transport?: HttpTransport;
   readonly apiUrl?: string;
   readonly wsUrl?: string;
@@ -165,12 +169,14 @@ export class SessionAccounts {
   constructor(params: SessionAccountsParams) {
     const { grant, key } = params.session;
     if (
-      grant.environment !== params.environment ||
-      grant.paradexChain !== params.paradexChain
+      (params.environment != null &&
+        grant.environment !== params.environment) ||
+      (params.paradexChain != null &&
+        grant.paradexChain !== params.paradexChain)
     ) {
       throw new SessionGrantError(
         'ENVIRONMENT_MISMATCH',
-        `grant is for ${grant.environment}/${grant.paradexChain}, not ${params.environment}/${params.paradexChain}`,
+        `grant is for ${grant.environment}/${grant.paradexChain}, not ${params.environment ?? grant.environment}/${params.paradexChain ?? grant.paradexChain}`,
       );
     }
     if (grant.sessionKey !== key.publicKey) {
@@ -184,8 +190,8 @@ export class SessionAccounts {
     assertGrantActive(grant, this.now());
     this.accounts = grantAccounts(grant);
     this.transport = params.transport ?? fetchTransport;
-    this.apiUrl = params.apiUrl ?? defaultApiUrl(params.environment);
-    this.wsUrl = params.wsUrl ?? defaultWsUrl(params.environment);
+    this.apiUrl = params.apiUrl ?? defaultApiUrl(grant.environment);
+    this.wsUrl = params.wsUrl ?? defaultWsUrl(grant.environment);
     this.webSocketFactory = params.webSocketFactory ?? defaultWebSocketFactory;
     this.refreshMargin = params.refreshMarginSeconds ?? 60;
     this.scheduleExpiry();
@@ -267,7 +273,7 @@ export class SessionAccounts {
     const id = this.resolveAccount(account);
     const timestamp = Date.now();
     const typedData = buildOrderTypedData(
-      this.params.paradexChain,
+      this.params.session.grant.paradexChain,
       order,
       timestamp,
     );
@@ -523,7 +529,7 @@ export class SessionAccounts {
     const now = this.now();
     const expiration = Math.min(now + SESSION_AUTH_MAX_TTL, grant.expiresAt);
     const typedData = buildAuthTypedData(
-      this.params.paradexChain,
+      this.params.session.grant.paradexChain,
       now,
       expiration,
     );

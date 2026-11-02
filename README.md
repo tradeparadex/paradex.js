@@ -274,10 +274,9 @@ const session =
     // until it enforces limits (see enforcedLimits).
   }));
 
+// The environment and chain come from the grant.
 const accounts = new Paradex.SessionAccounts({
   session,
-  environment: 'testnet',
-  paradexChain: config.paradexChainId,
   onDropped: (reason) => {
     console.warn('Session ended:', reason.code);
     // Delete the key so the next load does not restore the ended session.

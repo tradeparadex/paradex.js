@@ -178,6 +178,20 @@ describe('construction refusals', () => {
     }
   });
 
+  test('environment and chain default to the grant', async () => {
+    const grant = grantFor({ environment: 'mainnet' });
+    const transport = mockTransport(authResponder(key));
+    const accounts = new SessionAccounts({
+      session: { grant, key, grantId: GRANT_ID },
+      transport,
+      now: nowSeconds,
+    });
+    await accounts.getJwt(MAIN);
+    expect(transport.mock.calls[0]?.[0].url).toBe(
+      'https://api.prod.paradex.trade/v1/auth',
+    );
+  });
+
   test('expired grant', () => {
     let error: unknown;
     try {
