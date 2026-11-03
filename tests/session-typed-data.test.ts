@@ -1659,6 +1659,40 @@ describe('passkey ceilings and labels the server accepts', () => {
       });
     }).not.toThrow();
   });
+  test('a ceiling no longer than the clock skew is refused', () => {
+    expectCode(() => {
+      validatePasskeyGrant(withCeiling({ maxSessionTtl: 300 }), ENFORCED);
+    }, 'TTL_EXCEEDED');
+    expect(() => {
+      validatePasskeyGrant(withCeiling({ maxSessionTtl: 301 }), ENFORCED);
+    }).not.toThrow();
+    expect(() => {
+      validatePasskeyGrant(withCeiling({ maxSessionTtl: 60 }), {
+        ...ENFORCED,
+        clockSkewSeconds: 0,
+      });
+    }).not.toThrow();
+  });
+
+  test('a mint under a ceiling shorter than the skew says why', () => {
+    const m = structuredClone(
+      vectorOf((v) => v.name === 'session-mint-builder-limits').message,
+    ) as unknown as SessionMint;
+    const g = structuredClone(
+      vectorOf((v) => v.name === 'passkey-grant-builder').message,
+    ) as unknown as PasskeyGrant;
+    const short = { ...g, ceiling: { ...g.ceiling, maxSessionTtl: 60 } };
+    const now = m.expiresAt - 30;
+    expect(() => {
+      assertMintWithinCeiling(m, short, now, ENFORCED);
+    }).toThrow(/leaves no time after 300s of clock skew/);
+    expect(() => {
+      assertMintWithinCeiling(m, short, now, {
+        ...ENFORCED,
+        clockSkewSeconds: 0,
+      });
+    }).not.toThrow();
+  });
 });
 
 describe('signing with the SDK signer', () => {
