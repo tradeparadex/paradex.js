@@ -245,7 +245,7 @@ Grants are checked before signing. These throw a `SessionGrantError` with a `cod
 - labels over 64 characters or outside printable ASCII;
 - passkey ceilings with any scope but `trade`, or with subaccounts (refused until the server enables them; pass `passkeySubaccounts: true` once it does).
 
-`assertMintWithinCeiling` keeps a mint's `expiresAt` the same 5 minutes inside the ceiling's `maxSessionTtl`; pass `clockSkewSeconds: 0` when `now` comes from the server's clock.
+`assertMintWithinCeiling` keeps a mint's `expiresAt` the same 5 minutes inside the ceiling's `maxSessionTtl`; pass `clockSkewSeconds: 0` when `now` comes from the server's clock. For the same reason `validatePasskeyGrant` refuses a ceiling whose `maxSessionTtl` is 300 seconds or less, which would leave no time to mint; it takes the same `clockSkewSeconds` option.
 
 Pass `limitCaps` to refuse limits above your own ceilings before the wallet is asked. Caps apply only to enforced limits; a cap on a limit the server doesn't enforce refuses every grant.
 

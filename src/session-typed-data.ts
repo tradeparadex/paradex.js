@@ -832,6 +832,12 @@ export interface ValidatePasskeyGrantOptions extends LimitOptions {
    * `includeFutureSubaccounts` until it enables them.
    */
   readonly passkeySubaccounts?: boolean;
+  /**
+   * See {@link AssertMintOptions.clockSkewSeconds}. A `ceiling.maxSessionTtl`
+   * at or under it leaves no time to mint a session, so it is refused.
+   * Defaults to 300.
+   */
+  readonly clockSkewSeconds?: number;
 }
 
 export function validatePasskeyGrant(
@@ -914,13 +920,14 @@ export function validatePasskeyGrant(
     );
   }
   requireTimestamp('ceiling.maxSessionTtl', ceiling.maxSessionTtl);
+  const skew = options.clockSkewSeconds ?? MAX_ISSUED_AT_SKEW;
   if (
-    ceiling.maxSessionTtl === 0 ||
+    ceiling.maxSessionTtl <= skew ||
     ceiling.maxSessionTtl > SESSION_TTL.passkeySessionMax
   ) {
     throw new SessionGrantError(
       'TTL_EXCEEDED',
-      `ceiling.maxSessionTtl: must be 1-${SESSION_TTL.passkeySessionMax}s`,
+      `ceiling.maxSessionTtl: must be ${skew + 1}-${SESSION_TTL.passkeySessionMax}s`,
     );
   }
   if (
@@ -990,6 +997,7 @@ export function assertMintWithinCeiling(
     limitCaps: {},
     enforcedLimits: ALL_LIMITS,
     passkeySubaccounts: true,
+    clockSkewSeconds: 0,
   });
   if (
     mint.paradexChain !== grant.paradexChain ||
@@ -1060,6 +1068,12 @@ export function assertMintWithinCeiling(
     );
   }
   const skew = options.clockSkewSeconds ?? MAX_ISSUED_AT_SKEW;
+  if (ceiling.maxSessionTtl <= skew) {
+    throw new SessionGrantError(
+      'TTL_EXCEEDED',
+      `ceiling.maxSessionTtl: ${ceiling.maxSessionTtl}s leaves no time after ${skew}s of clock skew`,
+    );
+  }
   const latest = Math.min(grant.expiresAt, now + ceiling.maxSessionTtl - skew);
   if (mint.expiresAt > latest) {
     throw exceeds(`expiresAt: must be at or before ${latest}`);
