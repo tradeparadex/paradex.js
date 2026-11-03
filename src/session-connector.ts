@@ -78,6 +78,21 @@ interface CreateSessionResponse {
   readonly accounts?: unknown;
 }
 
+/** Whether `open()` finished registering this record. */
+function isRegistered(record: StoredSession): record is StoredSession & {
+  grant: NonNullable<StoredSession['grant']>;
+  grantId: NonNullable<StoredSession['grantId']>;
+  ownerSignature: NonNullable<StoredSession['ownerSignature']>;
+  signatureChainId: NonNullable<StoredSession['signatureChainId']>;
+} {
+  return (
+    record.grant != null &&
+    record.grantId != null &&
+    record.ownerSignature != null &&
+    record.signatureChainId != null
+  );
+}
+
 function sameAccounts(listed: unknown, grant: SessionGrant): boolean {
   if (!Array.isArray(listed)) return false;
   const expected = new Set(grantAccounts(grant));
@@ -246,20 +261,18 @@ export class SessionConnector {
   ): Promise<Session | undefined> {
     // A record from a newer SDK is unreadable here; leave it in place.
     assertRecordVersion(record);
-    const { grant, grantId, ownerSignature, signatureChainId, publicKey } =
-      record;
-    if (
-      grant == null ||
-      grantId == null ||
-      ownerSignature == null ||
-      signatureChainId == null
-    ) {
+    const publicKey = record.publicKey;
+    if (!isRegistered(record)) {
       // `open()` in another tab may have registered it since it was listed.
+      // Only a complete record is read again, so this cannot loop.
       const latest = await this.storage.get(publicKey);
-      if (latest?.grantId != null) return await this.fromRecord(latest);
+      if (latest != null && isRegistered(latest)) {
+        return await this.fromRecord(latest);
+      }
       await this.storage.delete(publicKey);
       return undefined;
     }
+    const { grant, grantId, ownerSignature, signatureChainId } = record;
     if (
       grant.environment !== this.environment ||
       grant.paradexChain !== this.paradexChain

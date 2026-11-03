@@ -465,4 +465,18 @@ describe('SessionConnector.restore', () => {
     expect(restored.map((x) => x.grantId)).toEqual([s.grantId]);
     expect(await storage.get(s.key.publicKey)).toBeDefined();
   });
+
+  test.each(['grant', 'ownerSignature', 'signatureChainId'] as const)(
+    'a record with a grant id but no %s is deleted once',
+    async (field) => {
+      const storage = memorySessionStorage();
+      const { connector } = setup({ storage });
+      const s = await connector.open({ limits: LIMITS, account: MAIN });
+      await storage.put({ ...s.key.record, [field]: undefined });
+      const get = jest.spyOn(storage, 'get');
+      expect(await connector.restore()).toEqual([]);
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(await storage.list()).toEqual([]);
+    },
+  );
 });
