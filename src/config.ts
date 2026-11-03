@@ -53,6 +53,11 @@ export interface ParadexConfig {
   readonly paraclearAddress: Hex;
   readonly paraclearDecimals: number;
   readonly bridgedTokens: Record<string, BridgedTokenConfig>;
+  /**
+   * Base URL of the Paradex REST API (e.g. `https://api.testnet.paradex.trade/v1`).
+   * Set by `fetchConfig`; used when deriving the account address via the API.
+   */
+  readonly paradexApiUrl?: string;
 }
 
 type ParadexEnvironment = 'testnet' | 'prod';
@@ -77,7 +82,7 @@ export async function fetchConfig(
   const jsonResp = await resp.json();
   const config = jsonResp as RawParadexConfig;
 
-  return buildConfig(config);
+  return buildConfig(config, apiUrl);
 }
 
 function assertParadexEnvironment(
@@ -92,7 +97,10 @@ function getParadexApiUrl(environment: ParadexEnvironment): string {
   return `https://api.${environment}.paradex.trade/v1`;
 }
 
-export function buildConfig(rawConfig: RawParadexConfig): ParadexConfig {
+export function buildConfig(
+  rawConfig: RawParadexConfig,
+  paradexApiUrl?: string,
+): ParadexConfig {
   const bridgedTokens = Object.fromEntries(
     rawConfig.bridged_tokens.map((token) => [
       token.symbol,
@@ -118,6 +126,7 @@ export function buildConfig(rawConfig: RawParadexConfig): ParadexConfig {
     paraclearAddress: rawConfig.paraclear_address,
     paraclearDecimals: rawConfig.paraclear_decimals,
     bridgedTokens,
+    ...(paradexApiUrl != null ? { paradexApiUrl } : {}),
   };
 }
 

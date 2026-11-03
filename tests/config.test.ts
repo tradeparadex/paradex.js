@@ -1,4 +1,4 @@
-import { buildConfig, type RawParadexConfig } from '../src/config';
+import { buildConfig, fetchConfig, type RawParadexConfig } from '../src/config';
 
 describe('buildConfig', () => {
   test('returns the correct config object', () => {
@@ -64,5 +64,67 @@ describe('buildConfig', () => {
     const config = buildConfig(rawConfig);
 
     expect(config).toEqual(expectedConfig);
+    expect(config).not.toHaveProperty('paradexApiUrl');
+    expect(buildConfig(rawConfig, 'https://api.example/v1')).toEqual({
+      ...expectedConfig,
+      paradexApiUrl: 'https://api.example/v1',
+    });
+  });
+});
+
+describe('fetchConfig', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('records the API URL in the config', async () => {
+    const rawConfig: RawParadexConfig = {
+      starknet_gateway_url: '',
+      starknet_fullnode_rpc_url: '',
+      starknet_chain_id: 'PRIVATE_SN_POTC_SEPOLIA',
+      block_explorer_url: '',
+      paraclear_address: '0x1',
+      paraclear_decimals: 8,
+      paraclear_account_proxy_hash: '0x2',
+      paraclear_account_hash: '0x3',
+      bridged_tokens: [],
+      l1_core_contract_address: '0x4',
+      l1_operator_address: '0x5',
+      l1_chain_id: '11155111',
+    };
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => rawConfig,
+    });
+
+    const config = await fetchConfig('testnet');
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.testnet.paradex.trade/v1/system/config',
+    );
+    expect(config.paradexApiUrl).toBe('https://api.testnet.paradex.trade/v1');
+  });
+
+  test('throws when the request fails', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+    });
+
+    await expect(fetchConfig('prod')).rejects.toThrow(
+      'Failed to fetch Paradex config: Service Unavailable 503',
+    );
+  });
+
+  test('rejects an unknown environment', async () => {
+    global.fetch = jest.fn();
+
+    await expect(fetchConfig('nightly' as 'prod')).rejects.toThrow(
+      'Invalid Paradex environment: nightly',
+    );
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

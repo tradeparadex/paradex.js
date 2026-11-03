@@ -17,7 +17,26 @@ export interface AccountCredentials {
   readonly privateKey: Hex;
 }
 
-interface DeriveFromEthSignerParams {
+/**
+ * Options controlling how the Paradex account address is resolved.
+ */
+export interface AddressDerivationOptions {
+  /**
+   * When true, fetch the account address from the Paradex API
+   * (`GET /onboarding`) instead of computing it locally from the class hashes
+   * in the config. Use this for accounts created with the current account
+   * class, whose address local derivation does not reproduce.
+   * Defaults to false.
+   */
+  readonly serverDeriveAddress?: boolean;
+  /**
+   * Paradex REST API base URL used when `serverDeriveAddress` is true.
+   * Defaults to `config.paradexApiUrl`.
+   */
+  readonly apiUrl?: string;
+}
+
+interface DeriveFromEthSignerParams extends AddressDerivationOptions {
   readonly config: ParadexConfig;
   readonly signer: ethereumSigner.EthereumSigner;
 }
@@ -31,6 +50,8 @@ interface DeriveFromEthSignerParams {
 export async function deriveFromEthSigner({
   config,
   signer,
+  serverDeriveAddress,
+  apiUrl,
 }: DeriveFromEthSignerParams): Promise<AccountCredentials> {
   const starkKeyTypedData = ethereumSigner.buildEthereumStarkKeyTypedData(
     config.ethereumChainId,
@@ -43,10 +64,11 @@ export async function deriveFromEthSigner({
     );
   const privateKey = keyDerivation.getPrivateKeyFromEthSignature(seed);
   const publicKey = keyDerivation.privateToStarkKey(privateKey);
-  const address = generateAccountAddress({
+  const address = await resolveAccountAddress({
+    config,
     publicKey: `0x${publicKey}`,
-    accountClassHash: config.paraclearAccountHash,
-    accountProxyClassHash: config.paraclearAccountProxyHash,
+    serverDeriveAddress,
+    apiUrl,
   });
   return {
     address,
@@ -54,7 +76,7 @@ export async function deriveFromEthSigner({
   };
 }
 
-interface FromEthSignerParams {
+interface FromEthSignerParams extends AddressDerivationOptions {
   readonly provider: Starknet.ProviderOptions | Starknet.ProviderInterface;
   readonly config: ParadexConfig;
   readonly signer: ethereumSigner.EthereumSigner;
@@ -69,8 +91,15 @@ export async function fromEthSigner({
   provider,
   config,
   signer,
+  serverDeriveAddress,
+  apiUrl,
 }: FromEthSignerParams): Promise<Account> {
-  const credentials = await deriveFromEthSigner({ config, signer });
+  const credentials = await deriveFromEthSigner({
+    config,
+    signer,
+    serverDeriveAddress,
+    apiUrl,
+  });
   return new Starknet.Account({
     provider,
     address: credentials.address,
@@ -78,7 +107,7 @@ export async function fromEthSigner({
   });
 }
 
-interface DeriveFromStarknetAccountParams {
+interface DeriveFromStarknetAccountParams extends AddressDerivationOptions {
   readonly config: ParadexConfig;
   readonly account: Starknet.AccountInterface;
   readonly starknetProvider?: Starknet.ProviderInterface;
@@ -96,6 +125,8 @@ export async function deriveFromStarknetAccount({
   account,
   starknetProvider,
   rpcUrl,
+  serverDeriveAddress,
+  apiUrl,
 }: DeriveFromStarknetAccountParams): Promise<AccountCredentials> {
   const starkKeyTypedData = starknetSigner.buildStarknetStarkKeyTypedData(
     config.starknetChainId,
@@ -120,10 +151,11 @@ export async function deriveFromStarknetAccount({
   const seed = accountSupport.getSeedFromSignature(signature);
   const [privateKey, publicKey] =
     await starknetSigner.getStarkKeypairFromStarknetSignature(seed);
-  const address = generateAccountAddress({
+  const address = await resolveAccountAddress({
+    config,
     publicKey: `0x${publicKey}`,
-    accountClassHash: config.paraclearAccountHash,
-    accountProxyClassHash: config.paraclearAccountProxyHash,
+    serverDeriveAddress,
+    apiUrl,
   });
   return {
     address,
@@ -131,7 +163,7 @@ export async function deriveFromStarknetAccount({
   };
 }
 
-interface FromStarknetAccountParams {
+interface FromStarknetAccountParams extends AddressDerivationOptions {
   /** Paradex chain provider */
   readonly provider: Starknet.ProviderOptions | Starknet.ProviderInterface;
   readonly config: ParadexConfig;
@@ -151,18 +183,153 @@ export async function fromStarknetAccount({
   account,
   starknetProvider,
   rpcUrl,
+  serverDeriveAddress,
+  apiUrl,
 }: FromStarknetAccountParams): Promise<Account> {
   const credentials = await deriveFromStarknetAccount({
     config,
     account,
     starknetProvider,
     rpcUrl,
+    serverDeriveAddress,
+    apiUrl,
   });
   return new Starknet.Account({
     provider,
     address: credentials.address,
     signer: credentials.privateKey,
   });
+}
+
+/**
+ * Class hash(es) the Paradex API used to derive an account address.
+ */
+export interface OnboardingDerivationInfo {
+  readonly classHash: Hex;
+  /** Present only for accounts deployed behind the legacy proxy class. */
+  readonly proxyClassHash?: Hex;
+}
+
+/**
+ * Onboarding status of a Starknet public key, as reported by the Paradex API.
+ */
+export interface OnboardingInfo {
+  /** The Paradex account address for the public key. */
+  readonly address: Hex;
+  /** Whether the account has already been onboarded. */
+  readonly exists: boolean;
+  readonly accountSignerType: string;
+  readonly derivationInfo?: OnboardingDerivationInfo;
+}
+
+interface RawOnboardingInfo {
+  readonly address: Hex;
+  readonly exists: boolean;
+  readonly account_signer_type: string;
+  readonly derivation_info?: {
+    readonly class_hash: Hex;
+    readonly proxy_class_hash?: Hex;
+  };
+}
+
+interface FetchOnboardingParams {
+  /** Paradex REST API base URL, e.g. `https://api.testnet.paradex.trade/v1` */
+  readonly apiUrl: string;
+  /** Paradex (Stark) public key in hex format */
+  readonly publicKey: Hex;
+}
+
+/**
+ * Fetches the account address and onboarding status for a Starknet public key
+ * from the Paradex API. Public endpoint, no authentication required.
+ */
+export async function fetchOnboarding({
+  apiUrl,
+  publicKey,
+}: FetchOnboardingParams): Promise<OnboardingInfo> {
+  const query = new URLSearchParams({
+    account_signer_type: 'starknet',
+    public_key: publicKey,
+  });
+  const resp = await fetch(
+    `${apiUrl.replace(/\/+$/, '')}/onboarding?${query.toString()}`,
+  );
+
+  if (!resp.ok) {
+    const detail = await readErrorMessage(resp);
+    throw new Error(
+      `Failed to fetch Paradex onboarding info: ${resp.statusText} ${resp.status}` +
+        (detail != null ? ` (${detail})` : ''),
+    );
+  }
+
+  const raw = (await resp.json()) as Partial<RawOnboardingInfo>;
+  if (typeof raw.address !== 'string' || !raw.address.startsWith('0x')) {
+    throw new Error('Paradex onboarding response is missing the address');
+  }
+
+  return {
+    address: raw.address,
+    exists: raw.exists === true,
+    accountSignerType: raw.account_signer_type ?? 'starknet',
+    ...(raw.derivation_info != null
+      ? {
+          derivationInfo: {
+            classHash: raw.derivation_info.class_hash,
+            ...(raw.derivation_info.proxy_class_hash != null
+              ? { proxyClassHash: raw.derivation_info.proxy_class_hash }
+              : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * Returns the `message` field of a Paradex API error body, if there is one.
+ */
+async function readErrorMessage(resp: Response): Promise<string | undefined> {
+  try {
+    const body = (await resp.json()) as { message?: unknown };
+    return typeof body.message === 'string' && body.message !== ''
+      ? body.message
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+interface ResolveAccountAddressParams extends AddressDerivationOptions {
+  readonly config: ParadexConfig;
+  readonly publicKey: Hex;
+}
+
+/**
+ * Resolves the account address either from the Paradex API or locally.
+ */
+async function resolveAccountAddress({
+  config,
+  publicKey,
+  serverDeriveAddress,
+  apiUrl,
+}: ResolveAccountAddressParams): Promise<Hex> {
+  if (serverDeriveAddress !== true) {
+    return generateAccountAddress({
+      publicKey,
+      accountClassHash: config.paraclearAccountHash,
+      accountProxyClassHash: config.paraclearAccountProxyHash,
+    });
+  }
+
+  const resolvedApiUrl = apiUrl ?? config.paradexApiUrl;
+  if (resolvedApiUrl == null || resolvedApiUrl === '') {
+    throw new Error(
+      'serverDeriveAddress requires an API URL: pass apiUrl or use a config from Config.fetch()',
+    );
+  }
+
+  const info = await fetchOnboarding({ apiUrl: resolvedApiUrl, publicKey });
+  return info.address;
 }
 
 interface GenerateAccountAddressParams {
