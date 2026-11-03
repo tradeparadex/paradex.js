@@ -7,6 +7,27 @@ import { configFactory } from './factories/paradex-config';
 import { createMockProvider } from './mocks/provider';
 
 describe('Paradex SDK exports', () => {
+  describe('SessionTypedData', () => {
+    test('should export grant builders and hashing', () => {
+      for (const fn of Object.values(Paradex.SessionTypedData)) {
+        expect(typeof fn).toBe('function');
+      }
+      const grant = Paradex.SessionTypedData.createGrant({
+        paradexChain: 'PRIVATE_SN_POTC_SEPOLIA',
+        environment: 'testnet',
+        account: '0x1',
+        sessionKey: '0x2',
+      });
+      const typedData = Paradex.SessionTypedData.buildGrantEip712(grant, 1);
+      expect(Paradex.SessionTypedData.hashEip712(typedData)).toMatch(
+        /^0x[0-9a-f]{64}$/,
+      );
+      expect(new Paradex.SessionGrantError('GRANT_EXPIRED', 'x').code).toBe(
+        'GRANT_EXPIRED',
+      );
+    });
+  });
+
   describe('Client', () => {
     test('should export fromEthSigner method', () => {
       expect(Paradex.Client.fromEthSigner).toBeDefined();
