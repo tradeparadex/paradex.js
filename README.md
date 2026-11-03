@@ -275,6 +275,58 @@ Pass `limitCaps` to refuse limits above your own ceilings before the wallet is a
 
 Show the owner what they are approving with `SessionTypedData.summarizeGrant(grant)`. Its first line states the risk plainly: _Cannot withdraw; can lose up to `maxLoss` USD by trading_, or, when `maxLoss` is `"none"`, _Cannot withdraw; trading losses are not capped by this session_.
 
+### Sessions: trade with a session key (experimental)
+
+`SessionConnector` opens a session with **one** wallet prompt. A session cannot withdraw. Its trading losses are capped only by the grant's `maxLoss`, and while that is `"none"` (the default) they are not capped by the session. The Stark session key is generated in the page and stored encrypted under a non-extractable WebCrypto key; the private key is decrypted only while signing. The grant is registered with `POST /v2/sessions`.
+
+`SessionAccounts` then mints a JWT per account the grant lists (the main account and any `subaccounts`) through `POST /v1/auth` with `PARADEX-STARKNET-ACCOUNT`, each for at most 15 minutes and never past the grant's expiry. It keeps one websocket per account and routes requests by account. Sessions never use `on_behalf_of`. When the server refuses a session token or the session key, `SessionAccounts` checks `GET /v2/sessions/{grant_id}/status`. If the grant is revoked or expired, every account is dropped and `onDropped` is called; any other refusal is treated as transient. RFQ endpoints don't accept session tokens yet: a 403 there throws a `SessionApiError` with code `NOT_AVAILABLE_TO_SESSIONS`, and does not end the session. `accounts.revoke()` revokes the grant itself.
+
+```typescript
+const connector = new Paradex.SessionConnector({
+  environment: 'testnet',
+  paradexChain: config.paradexChainId,
+  // Default: the injected wallet. For MPC providers, use
+  // Paradex.Session.ownerSignerFromExternal({ chainId, sign }).
+  owner: Paradex.Session.ownerSignerFromEip1193({ provider: window.ethereum }),
+  storage: Paradex.Session.indexedDbStorage(),
+});
+
+const [existing] = await connector.restore();
+const session =
+  existing ??
+  (await connector.open({
+    account: '0x...',
+    subaccounts: ['0x...'],
+    scopes: ['trade'],
+    // limits defaults to every limit uncapped, as the server requires
+    // until it enforces limits (see enforcedLimits).
+  }));
+
+// The environment and chain come from the grant.
+const accounts = new Paradex.SessionAccounts({
+  session,
+  onDropped: (reason) => {
+    console.warn('Session ended:', reason.code);
+    // Delete the key so the next load does not restore the ended session.
+    void connector.forget(session);
+  },
+});
+await accounts.start();
+
+await accounts.placeOrder('0x...', {
+  market: 'BTC-USD-PERP',
+  side: 'BUY',
+  type: 'LIMIT',
+  size: '0.01',
+  price: '60000',
+});
+const unsubscribe = await accounts.subscribe('0x...', 'orders.ALL', (data) =>
+  console.log(data),
+);
+```
+
+> `/v2/sessions` is experimental; its request and response shapes may change.
+
 ## Best Practices
 
 ### 1. Environment Variables
