@@ -297,11 +297,19 @@ describe('start', () => {
     );
     let active = 0;
     let peak = 0;
+    // Hold the first logins until 10 are in flight, so the peak does not
+    // depend on how fast each worker signs.
+    let open!: () => void;
+    const full = new Promise<void>((resolve) => {
+      open = resolve;
+    });
     const h = setup({
       grant: grantFor({ subaccounts }),
       route: async (req) => {
         if (!req.url.endsWith('/v1/auth')) return undefined;
         peak = Math.max(peak, ++active);
+        if (active === 10) open();
+        await full;
         await new Promise((resolve) => setImmediate(resolve));
         active--;
         return undefined;
