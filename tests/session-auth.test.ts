@@ -4,6 +4,7 @@ import {
   buildAuthTypedData,
   buildOrderTypedData,
   jwtExpiry,
+  sessionAuthPath,
   toChainQuantums,
 } from '../src/session-auth';
 import {
@@ -15,6 +16,19 @@ import {
 } from '../src/session-transport';
 
 import { jwtFor } from './mocks/session';
+
+describe('sessionAuthPath', () => {
+  test('names the session key, so the server checks it and not the main key', () => {
+    expect(sessionAuthPath('0xabc')).toBe('/v1/auth/0xabc');
+  });
+
+  test.each(['abc', '0x', '0x' + 'f'.repeat(65), '0xabc/../x'])(
+    'refuses %p',
+    (key) => {
+      expect(() => sessionAuthPath(key)).toThrow(/0x-prefixed hex/);
+    },
+  );
+});
 
 describe('session auth typed data', () => {
   test('auth request matches the server Request type', () => {

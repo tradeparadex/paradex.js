@@ -1594,15 +1594,33 @@ describe('passkey ceilings and labels the server accepts', () => {
 
   test.each<SessionScope[]>([
     ['trade', 'trade:rfq'],
-    ['trade', 'trade:block'],
     ['trade', 'account:settings'],
-  ])('a ceiling of %p is refused', (...scopes) => {
+    ['trade', 'trade:rfq', 'account:settings'],
+  ])('a first-party ceiling of %p is accepted', (...scopes) => {
     const g = withCeiling({ scopes });
+    expect(g.builderAccount).toBe('0x0');
+    expect(() => buildPasskeyGrantEip712(g, 1, ENFORCED)).not.toThrow();
+    expect(() => buildPasskeyGrantSnip12(g, ENFORCED)).not.toThrow();
+  });
+
+  test('a first-party ceiling never carries trade:block', () => {
+    const g = withCeiling({ scopes: ['trade', 'trade:block'] });
     expectCode(
       () => buildPasskeyGrantEip712(g, 1, ENFORCED),
       'SCOPE_NOT_ALLOWED',
     );
     expectCode(() => buildPasskeyGrantSnip12(g, ENFORCED), 'SCOPE_NOT_ALLOWED');
+  });
+
+  test.each<SessionScope[]>([
+    ['trade', 'trade:rfq'],
+    ['trade', 'trade:block'],
+    ['trade', 'account:settings'],
+  ])('a builder ceiling of %p is refused', (...scopes) => {
+    const g = { ...withCeiling({ scopes }), builderAccount: BUILDER };
+    expectCode(() => {
+      validatePasskeyGrant(g, ENFORCED);
+    }, 'SCOPE_NOT_ALLOWED');
   });
 
   test('ceiling subaccounts are refused unless the server allows them', () => {

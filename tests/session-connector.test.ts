@@ -64,6 +64,7 @@ function setup(
     readonly storage?: SessionStorage;
     readonly environment?: 'testnet' | 'mainnet';
     readonly now?: () => number;
+    readonly ownerAddress?: string;
   } = {},
 ): Harness {
   const wallet = ethers.Wallet.createRandom();
@@ -76,7 +77,13 @@ function setup(
   const connector = new SessionConnector({
     environment: options.environment ?? 'testnet',
     paradexChain: PARADEX_CHAIN,
-    owner: externalOwnerSigner({ chainId: 42161, sign }),
+    owner: externalOwnerSigner({
+      chainId: 42161,
+      sign,
+      ...(options.ownerAddress != null
+        ? { address: options.ownerAddress }
+        : {}),
+    }),
     storage,
     transport,
     now: options.now ?? (() => T0),
@@ -367,6 +374,189 @@ describe('SessionConnector.open', () => {
     await expect(
       connector.open({ limits: LIMITS, account: MAIN }),
     ).rejects.toThrow('Bad Gateway');
+  });
+});
+
+describe('SessionConnector.open: lifetime', () => {
+  test('applies the 30-day cap POST /v2/sessions applies, even for sessionType api', async () => {
+    const { connector, sign, transport } = setup();
+    const error = await connector
+      .open({
+        limits: LIMITS,
+        account: MAIN,
+        sessionType: 'api',
+        ttlSeconds: 90 * 86400,
+      })
+      .catch((e: unknown) => e);
+    expectCode(error, 'TTL_EXCEEDED');
+    expect(sign).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  test('a grant just under the cap opens', async () => {
+    const { connector } = setup();
+    const session = await connector.open({
+      limits: LIMITS,
+      account: MAIN,
+      ttlSeconds: 30 * 86400 - 300,
+    });
+    expect(session.grant.expiresAt - session.grant.issuedAt).toBe(
+      30 * 86400 - 300,
+    );
+  });
+});
+
+describe('SessionConnector.open: opening a new account', () => {
+  test('sends referral, marketing and UTM fields unsigned, and the Privy header', async () => {
+    const { connector, transport } = setup();
+    const session = await connector.open({
+      limits: LIMITS,
+      account: MAIN,
+      onboarding: {
+        referralCode: 'cryptofox8',
+        marketingCode: 'abcd:code1',
+        utm: { source: 'google', campaign: 'launch', type: 'clickthrough' },
+        privyAccessToken: 'privy-token',
+      },
+    });
+    const req = transport.mock.calls[0]?.[0];
+    expect(req?.headers).toEqual({
+      'Content-Type': 'application/json',
+      'PARADEX-PRIVY-ACCESS-TOKEN': 'privy-token',
+    });
+    expect(JSON.parse(req?.body ?? '{}')).toEqual({
+      grant: session.grant,
+      signature: session.ownerSignature,
+      signature_chain_id: 42161,
+      signature_type: 'eip712',
+      referral_code: 'cryptofox8',
+      marketing_code: 'abcd:code1',
+      utm: { source: 'google', campaign: 'launch', type: 'clickthrough' },
+    });
+    // Nothing from `onboarding` reaches the signed grant.
+    expect(Object.keys(session.grant)).not.toContain('onboarding');
+  });
+
+  test('sends none of them when not given', async () => {
+    const { connector, transport } = setup();
+    await connector.open({ limits: LIMITS, account: MAIN, onboarding: {} });
+    const req = transport.mock.calls[0]?.[0];
+    expect(req?.headers).toEqual({ 'Content-Type': 'application/json' });
+    const body = JSON.parse(req?.body ?? '{}') as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual([
+      'grant',
+      'signature',
+      'signature_chain_id',
+      'signature_type',
+    ]);
+  });
+
+  test.each([
+    [403, 'SESSIONS_DISABLED'],
+    [400, 'ACCOUNT_NOT_ELIGIBLE'],
+    [400, 'PARENT_ADDRESS_ALREADY_ONBOARDED'],
+    [400, 'INVALID_MARKETING_CODE'],
+    [400, 'INSUFFICIENT_MIN_CHAIN_BALANCE'],
+    [400, 'ETHEREUM_ADDRESS_BLOCKED'],
+    [429, 'ONBOARDING_RATE_LIMITED'],
+  ])(
+    'a %i %s refusal is a typed SessionApiError and deletes the key',
+    async (status, code) => {
+      const { connector, storage } = setup({
+        respond: () => ({ status, body: { error: code, message: 'refused' } }),
+      });
+      const error = await connector
+        .open({ limits: LIMITS, account: MAIN })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(SessionApiError);
+      expect(error).toMatchObject({ status, code });
+      expect(await storage.list()).toEqual([]);
+    },
+  );
+});
+
+describe('SessionConnector sub-accounts', () => {
+  const OWNER = '0x1111111111111111111111111111111111111111';
+  const OTHER = '0x' + '7'.repeat(63);
+
+  function routed(subaccounts: unknown): (req: HttpRequest) => {
+    status: number;
+    body: unknown;
+  } {
+    return (req) =>
+      req.url.includes('/v2/onboarding/subaccounts')
+        ? { status: 200, body: { results: subaccounts } }
+        : registered(req);
+  }
+
+  test('listSubaccounts reads GET /v2/onboarding/subaccounts', async () => {
+    const { connector, transport } = setup({
+      // Any hex form; the listing is canonicalized.
+      respond: routed([{ address: '0x0011', index: 0 }]),
+    });
+    await expect(connector.listSubaccounts(OWNER)).resolves.toEqual([
+      { address: SUB, index: 0 },
+    ]);
+    expect(transport.mock.calls[0]?.[0]).toMatchObject({
+      method: 'GET',
+      url: `https://api.testnet.paradex.trade/v2/onboarding/subaccounts?eth_address=${OWNER}`,
+    });
+  });
+
+  test('listSubaccounts refuses a bad address and a malformed answer', async () => {
+    const { connector } = setup({ respond: routed([{ address: SUB }]) });
+    await expect(connector.listSubaccounts('0x12')).rejects.toThrow(
+      /20-byte address/,
+    );
+    await expect(connector.listSubaccounts(OWNER)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+  });
+
+  test("a grant listing the wallet's own sub-accounts opens", async () => {
+    const { connector, sign } = setup({
+      ownerAddress: OWNER,
+      respond: routed([{ address: SUB, index: 0 }]),
+    });
+    const session = await connector.open({
+      limits: LIMITS,
+      account: MAIN,
+      subaccounts: [SUB],
+    });
+    expect(session.grant.subaccounts).toEqual([SUB]);
+    expect(sign).toHaveBeenCalledTimes(1);
+  });
+
+  test('a grant listing another account is refused before the owner signs', async () => {
+    const { connector, sign, storage } = setup({
+      ownerAddress: OWNER,
+      respond: routed([{ address: SUB, index: 0 }]),
+    });
+    const error = await connector
+      .open({ limits: LIMITS, account: MAIN, subaccounts: [SUB, OTHER] })
+      .catch((e: unknown) => e);
+    expectCode(error, 'ACCOUNT_NOT_ELIGIBLE');
+    expect(sign).not.toHaveBeenCalled();
+    expect(await storage.list()).toEqual([]);
+  });
+
+  test('without the owner address the server decides', async () => {
+    const { connector, transport } = setup();
+    await connector.open({ limits: LIMITS, account: MAIN, subaccounts: [SUB] });
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(transport.mock.calls[0]?.[0].url).toMatch(/\/v2\/sessions$/);
+  });
+
+  test('at most 32 sub-accounts', async () => {
+    const { connector } = setup();
+    const many = Array.from(
+      { length: 33 },
+      (_, i) => '0x' + (i + 0x100).toString(16),
+    );
+    const error = await connector
+      .open({ limits: LIMITS, account: MAIN, subaccounts: many })
+      .catch((e: unknown) => e);
+    expectCode(error, 'INVALID_FIELD');
   });
 });
 

@@ -262,12 +262,15 @@ Every limit is stated: a positive decimal (USD; leverage as a multiple) or `"non
 Grants are checked before signing. These throw a `SessionGrantError` with a `code`:
 
 - reserved scopes (`withdraw:owner`, `trade:isolated`);
+- more than 32 subaccounts;
 - lifetimes past the server caps, less a 5-minute allowance for the client's clock running ahead (`clockSkewSeconds`; pass 0 when `issuedAt` comes from the server's clock);
 - a limit that is empty, or set while the server doesn't enforce it (`LIMIT_INVALID`);
 - builder grants asking for `trade:block` or `account:settings`;
 - builder grants without a numeric `maxLoss`. Builder grants need a loss cap, so they're refused until the server enforces `maxLoss`.
 - labels over 64 characters or outside printable ASCII;
-- passkey ceilings with any scope but `trade`, or with subaccounts (refused until the server enables them; pass `passkeySubaccounts: true` once it does).
+- passkey ceilings with scopes the server refuses: a first-party passkey's ceiling may carry `trade`, `trade:rfq` and `account:settings`, a builder passkey's only `trade`. Ceilings with subaccounts are refused until the server enables them; pass `passkeySubaccounts: true` once it does.
+
+`POST /v2/sessions` caps every grant at 30 days (7 with `trade:block` or `account:settings`). The `api` session type's 180-day cap is for IP-pinned API sessions, which that endpoint does not open; `SessionConnector.open()` always applies the 30-day cap.
 
 `assertMintWithinCeiling` keeps a mint's `expiresAt` the same 5 minutes inside the ceiling's `maxSessionTtl`; pass `clockSkewSeconds: 0` when `now` comes from the server's clock. For the same reason `validatePasskeyGrant` refuses a ceiling whose `maxSessionTtl` is 300 seconds or less, which would leave no time to mint; it takes the same `clockSkewSeconds` option.
 
@@ -279,7 +282,11 @@ Show the owner what they are approving with `SessionTypedData.summarizeGrant(gra
 
 `SessionConnector` opens a session with **one** wallet prompt. A session cannot withdraw. Its trading losses are capped only by the grant's `maxLoss`, and while that is `"none"` (the default) they are not capped by the session. The Stark session key is generated in the page and stored encrypted under a non-extractable WebCrypto key; the private key is decrypted only while signing. The grant is registered with `POST /v2/sessions`.
 
-`SessionAccounts` then mints a JWT per account the grant lists (the main account and any `subaccounts`) through `POST /v1/auth` with `PARADEX-STARKNET-ACCOUNT`, each for at most 15 minutes and never past the grant's expiry. It keeps one websocket per account and routes requests by account. Sessions never use `on_behalf_of`. When the server refuses a session token or the session key, `SessionAccounts` checks `GET /v2/sessions/{grant_id}/status`. If the grant is revoked or expired, every account is dropped and `onDropped` is called; any other refusal is treated as transient. RFQ endpoints don't accept session tokens yet: a 403 there throws a `SessionApiError` with code `NOT_AVAILABLE_TO_SESSIONS`, and does not end the session. `accounts.revoke()` revokes the grant itself.
+A grant from a wallet with no Paradex account yet opens the account along with its first session; the account is deployed when it is first funded. Such a grant lists no subaccounts. Pass `onboarding: { referralCode, marketingCode, utm, privyAccessToken }` to `open()` for this case: the fields are sent with the grant but not signed, and a grant naming a builder ignores them. Refusals, including the onboarding ones (`INSUFFICIENT_MIN_CHAIN_BALANCE`, `PARENT_ADDRESS_ALREADY_ONBOARDED`, `ONBOARDING_RATE_LIMITED`, `SESSIONS_DISABLED` and others), throw a `SessionApiError` whose `code` is typed as `SessionApiErrorCode`.
+
+An EVM-owned account's sub-accounts can be listed before signing in with `connector.listSubaccounts(ethAddress)`. When the owner signer knows its address (`ownerSignerFromEip1193` does; pass `address` to `ownerSignerFromExternal`), `open()` checks a grant's `subaccounts` against that list before the wallet is asked to sign.
+
+`SessionAccounts` then mints a JWT per account the grant lists (the main account and any `subaccounts`) through `POST /v1/auth/{session_public_key}` with `PARADEX-STARKNET-ACCOUNT`, each for at most 15 minutes and never past the grant's expiry. It keeps one websocket per account and routes requests by account. Sessions never use `on_behalf_of`. When the server refuses a session token or the session key, `SessionAccounts` checks `GET /v2/sessions/{grant_id}/status`. If the grant is revoked or expired, every account is dropped and `onDropped` is called; any other refusal is treated as transient. RFQ create, execute and drafts are open to a session whose grant has `trade:rfq`, caps nothing and names no builder, where the server has enabled RFQ for the account's sessions. Otherwise they answer 403 `REQUEST_NOT_ALLOWED`, and an account not yet deployed gets 400 `NOT_ONBOARDED`; neither ends the session. A session may also deposit into its own account (`POST /v1/deposit-addresses`, and `POST /v1/bridges/layerswap/swaps` with `use_deposit_address` and no `source_address`), but never move funds out. `accounts.revoke()` revokes the grant itself.
 
 ```typescript
 const connector = new Paradex.SessionConnector({

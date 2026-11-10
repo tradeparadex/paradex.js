@@ -93,6 +93,21 @@ describe('eip1193OwnerSigner', () => {
     ]);
   });
 
+  test('reports the owner address, given or from the wallet', async () => {
+    const wallet = ethers.Wallet.createRandom();
+    const given = eip1193OwnerSigner({
+      provider: walletProvider(wallet, '1'),
+      address: wallet.address,
+    });
+    expect(await given.getAddress?.()).toBe(wallet.address);
+    const provider = walletProvider(wallet, '1');
+    const asked = eip1193OwnerSigner({ provider });
+    expect(await asked.getAddress?.()).toBe(wallet.address);
+    expect(provider.calls.map((c) => c.method)).toEqual([
+      'eth_requestAccounts',
+    ]);
+  });
+
   test.each([['0x0'], ['abc'], [null], [-1]])(
     'refuses chain id %p',
     async (value) => {
@@ -151,6 +166,16 @@ describe('externalOwnerSigner', () => {
     const signature = await signer.signTypedData({ typedData, digest });
     expect(sign).toHaveBeenCalledWith({ typedData, digest });
     expect(ethers.recoverAddress(digest, signature)).toBe(wallet.address);
+  });
+
+  test('reports an address only when given one', async () => {
+    const sign = async (): Promise<string> => '0x';
+    expect(
+      externalOwnerSigner({ chainId: 1, sign }).getAddress,
+    ).toBeUndefined();
+    const owner = '0x1111111111111111111111111111111111111111';
+    const signer = externalOwnerSigner({ chainId: 1, sign, address: owner });
+    expect(await signer.getAddress?.()).toBe(owner);
   });
 
   test('accepts an async chain id', async () => {

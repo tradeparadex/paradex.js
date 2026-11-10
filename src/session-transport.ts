@@ -76,9 +76,50 @@ export function defaultWsUrl(environment: SessionEnvironment): string {
   return `wss://ws.api.${hostLabel(environment)}.paradex.trade/v1`;
 }
 
+/**
+ * Error codes the session endpoints are known to return. Servers may add
+ * codes, so `SessionApiError.code` can hold any string.
+ */
+export type KnownSessionApiErrorCode =
+  // POST /v2/sessions
+  | 'INVALID_SIGNATURE'
+  | 'GRANT_EXPIRED'
+  | 'INVALID_ENVIRONMENT'
+  | 'INVALID_CHAIN'
+  | 'SCOPE_NOT_ALLOWED'
+  | 'LIMIT_INVALID'
+  | 'NONCE_REUSED'
+  | 'ACCOUNT_NOT_ELIGIBLE'
+  | 'INVALID_GRANT'
+  | 'SESSION_KEY_IN_USE'
+  | 'SESSION_LIMIT_REACHED'
+  | 'BUILDER_APPROVAL_LIMIT_REACHED'
+  | 'BUILDER_APPROVAL_STALE'
+  | 'SESSIONS_DISABLED'
+  // POST /v2/sessions when the grant opens a new account
+  | 'INVALID_MARKETING_CODE'
+  | 'INVALID_REQUEST_PARAMETER'
+  | 'INSUFFICIENT_MIN_CHAIN_BALANCE'
+  | 'ETHEREUM_ADDRESS_BLOCKED'
+  | 'PARENT_ADDRESS_ALREADY_ONBOARDED'
+  | 'ONBOARDING_RATE_LIMITED'
+  // Sign-in and session use
+  | 'SESSION_REVOKED'
+  | 'SESSION_EXPIRED'
+  | 'NOT_ONBOARDED'
+  | 'INVALID_TOKEN_SCOPE'
+  | 'REQUEST_NOT_ALLOWED'
+  | 'IP_NOT_ALLOWED'
+  | 'NOT_FOUND'
+  // Raised by the SDK for a malformed server response
+  | 'INVALID_RESPONSE';
+
+// eslint-disable-next-line @typescript-eslint/ban-types
+export type SessionApiErrorCode = KnownSessionApiErrorCode | (string & {});
+
 export class SessionApiError extends Error {
   readonly status: number;
-  readonly code: string | undefined;
+  readonly code: SessionApiErrorCode | undefined;
   readonly body: unknown;
 
   constructor(status: number, body: unknown) {

@@ -22,6 +22,11 @@ export interface SessionOwnerSigner {
    * signers that sign raw hashes. Must return a 65-byte `r‖s‖v` signature.
    */
   signTypedData: (request: OwnerSignRequest) => Promise<string>;
+  /**
+   * The owner wallet's address. Optional: when present, `SessionConnector`
+   * checks a grant's subaccounts against the wallet's before it signs.
+   */
+  getAddress?: () => Promise<string>;
 }
 
 export interface OwnerSignRequest {
@@ -74,6 +79,7 @@ export function eip1193OwnerSigner({
   return {
     getChainId: async () =>
       parseChainId(await provider.request({ method: 'eth_chainId' })),
+    getAddress: resolveAddress,
     signTypedData: async ({ typedData }) => {
       const from = await resolveAddress();
       const signature = await provider.request({
@@ -93,6 +99,8 @@ export interface ExternalOwnerSignerParams {
   readonly chainId: number | (() => Promise<number>);
   /** Signs the typed data (or its digest) with the partner's infrastructure. */
   readonly sign: (request: OwnerSignRequest) => Promise<string>;
+  /** The owner wallet's address, if known. */
+  readonly address?: string;
 }
 
 /**
@@ -102,11 +110,13 @@ export interface ExternalOwnerSignerParams {
 export function externalOwnerSigner({
   chainId,
   sign,
+  address,
 }: ExternalOwnerSignerParams): SessionOwnerSigner {
   return {
     getChainId: async () =>
       parseChainId(typeof chainId === 'function' ? await chainId() : chainId),
     signTypedData: sign,
+    ...(address != null ? { getAddress: async () => address } : {}),
   };
 }
 

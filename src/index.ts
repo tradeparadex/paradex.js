@@ -71,6 +71,7 @@ export {
   ALL_LIMITS,
   DEFAULT_ENFORCED_LIMITS,
   DEFAULT_LIMIT_CAPS,
+  MAX_GRANT_SUBACCOUNTS,
   SessionGrantError,
   UNCAPPED_LIMITS,
 } from './session-typed-data.js';
@@ -122,9 +123,12 @@ export type {
   ValidatePasskeyGrantOptions,
 } from './session-typed-data.js';
 export type {
+  EvmSubaccount,
   OpenSessionParams,
   Session as RegisteredSession,
   SessionConnectorParams,
+  SessionOnboardingParams,
+  SessionUtm,
 } from './session-connector.js';
 export type {
   GrantState,
@@ -144,6 +148,8 @@ export type {
   HttpRequest,
   HttpResponse,
   HttpTransport,
+  KnownSessionApiErrorCode,
+  SessionApiErrorCode,
   WebSocketFactory,
   WebSocketLike,
 } from './session-transport.js';

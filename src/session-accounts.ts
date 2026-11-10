@@ -1,9 +1,9 @@
 import {
-  AUTH_PATH,
   buildAuthTypedData,
   buildOrderTypedData,
   jwtExpiry,
   SESSION_AUTH_MAX_TTL,
+  sessionAuthPath,
   type SessionOrder,
 } from './session-auth.js';
 import { SESSIONS_PATH, type Session } from './session-connector.js';
@@ -130,14 +130,18 @@ function isAuthRefusal(error: SessionApiError): boolean {
   );
 }
 
-/** RFQ endpoints do not accept session tokens yet, even with `trade:rfq`. */
-const RFQ_PATH = /^\/v\d+\/rfqs?(\/|\?|$)/;
-
+/**
+ * @deprecated RFQ endpoints now accept session tokens, and their refusals
+ * keep the server's code: `REQUEST_NOT_ALLOWED` when the session may not
+ * create, execute or draft RFQs, `NOT_ONBOARDED` before the account is
+ * deployed. Nothing raises this code any more.
+ */
 export const NOT_AVAILABLE_TO_SESSIONS = 'NOT_AVAILABLE_TO_SESSIONS';
 
 /**
  * Trades every account a grant lists with one session key: a JWT per account
- * (`/auth` with `PARADEX-STARKNET-ACCOUNT`, signed by the session key), one
+ * (`POST /v1/auth/{session_public_key}` with `PARADEX-STARKNET-ACCOUNT`,
+ * signed by the session key), one
  * websocket per account, and requests routed by account. Sessions never use
  * `on_behalf_of`; each account authenticates as itself.
  *
@@ -253,16 +257,6 @@ export class SessionAccounts {
       if (result instanceof SessionApiError && result.status === 401) {
         await this.confirmActive();
       }
-    }
-    if (
-      result instanceof SessionApiError &&
-      result.status === 403 &&
-      RFQ_PATH.test(req.path)
-    ) {
-      throw new SessionApiError(403, {
-        error: NOT_AVAILABLE_TO_SESSIONS,
-        message: 'RFQ is not available to sessions yet',
-      });
     }
     if (result instanceof SessionApiError) throw result;
     return result;
@@ -534,10 +528,11 @@ export class SessionAccounts {
       expiration,
     );
     const signature = await key.signTypedData(typedData, account);
-    // No `token_usage` parameter: the server derives it from the grant.
+    // No `token_usage` parameter: the server derives it from the grant. The
+    // key goes in the path, or the server checks the account's main key.
     const response = await this.transport({
       method: 'POST',
-      url: `${this.apiUrl}${AUTH_PATH}`,
+      url: `${this.apiUrl}${sessionAuthPath(key.publicKey)}`,
       headers: {
         'PARADEX-STARKNET-ACCOUNT': account,
         'PARADEX-STARKNET-SIGNATURE': JSON.stringify(signature),

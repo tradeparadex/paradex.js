@@ -34,6 +34,7 @@ import {
 import type { Hex } from './types.js';
 
 export const SESSIONS_PATH = '/v2/sessions';
+export const EVM_SUBACCOUNTS_PATH = '/v2/onboarding/subaccounts';
 
 /** A registered session: the grant and the key that may act under it. */
 export interface Session {
@@ -67,10 +68,45 @@ export interface SessionConnectorParams {
   readonly enforcedLimits?: readonly LimitName[];
 }
 
+/** UTM tracking parameters, as `POST /v2/onboarding` takes them. */
+export interface SessionUtm {
+  readonly source: string;
+  readonly campaign: string;
+  readonly type?: string;
+}
+
+/**
+ * Sent with the grant and read only when it opens a new account (a wallet
+ * with no Paradex account yet). None of it is signed, so the server ignores
+ * it for a grant that names a builder.
+ */
+export interface SessionOnboardingParams {
+  readonly referralCode?: string;
+  /** `campaign:code`. */
+  readonly marketingCode?: string;
+  readonly utm?: SessionUtm;
+  /**
+   * A Privy access token for the signing wallet, sent as
+   * `PARADEX-PRIVY-ACCESS-TOKEN`. It lets a verified Privy user's wallet skip
+   * the minimum-balance check when the grant opens a new account.
+   */
+  readonly privyAccessToken?: string;
+}
+
 export type OpenSessionParams = Omit<
   CreateSessionGrantParams,
   'paradexChain' | 'environment' | 'sessionKey'
->;
+> & {
+  /** Used only when the grant opens a new account. */
+  readonly onboarding?: SessionOnboardingParams;
+};
+
+/** An EVM-owned account's sub-account, as `GET /v2/onboarding/subaccounts` lists it. */
+export interface EvmSubaccount {
+  readonly address: string;
+  /** Index under the owner the address derives from. */
+  readonly index: number;
+}
 
 interface CreateSessionResponse {
   readonly grant_id?: unknown;
@@ -91,6 +127,27 @@ function isRegistered(record: StoredSession): record is StoredSession & {
     record.ownerSignature != null &&
     record.signatureChainId != null
   );
+}
+
+function onboardingBody(
+  onboarding: SessionOnboardingParams | undefined,
+): Record<string, unknown> {
+  if (onboarding == null) return {};
+  const body: Record<string, unknown> = {};
+  if (onboarding.referralCode != null && onboarding.referralCode !== '') {
+    body.referral_code = onboarding.referralCode;
+  }
+  if (onboarding.marketingCode != null && onboarding.marketingCode !== '') {
+    body.marketing_code = onboarding.marketingCode;
+  }
+  if (onboarding.utm != null) {
+    body.utm = {
+      source: onboarding.utm.source,
+      campaign: onboarding.utm.campaign,
+      ...(onboarding.utm.type != null ? { type: onboarding.utm.type } : {}),
+    };
+  }
+  return body;
 }
 
 function sameAccounts(listed: unknown, grant: SessionGrant): boolean {
@@ -139,24 +196,76 @@ export class SessionConnector {
   }
 
   /**
+   * Lists the sub-accounts of the EVM-owned account a wallet owns, lowest
+   * index first, so a grant can list them before the wallet has signed in.
+   * A wallet with no EVM-owned account has none.
+   */
+  async listSubaccounts(ethAddress: string): Promise<EvmSubaccount[]> {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(ethAddress)) {
+      throw new Error('ethAddress must be a 0x-prefixed 20-byte address');
+    }
+    const response = await this.transport({
+      method: 'GET',
+      url: `${this.apiUrl}${EVM_SUBACCOUNTS_PATH}?eth_address=${ethAddress}`,
+      headers: {},
+    });
+    if (response.status < 200 || response.status >= 300) {
+      throw new SessionApiError(response.status, response.body);
+    }
+    const results = (response.body as { results?: unknown } | null)?.results;
+    if (!Array.isArray(results)) {
+      throw new SessionApiError(response.status, {
+        error: 'INVALID_RESPONSE',
+        message: `GET ${EVM_SUBACCOUNTS_PATH} returned no results`,
+      });
+    }
+    return results.map((entry: unknown) => {
+      const { address, index } = (entry ?? {}) as Record<string, unknown>;
+      if (
+        typeof address !== 'string' ||
+        typeof index !== 'number' ||
+        !Number.isSafeInteger(index) ||
+        index < 0
+      ) {
+        throw new SessionApiError(response.status, {
+          error: 'INVALID_RESPONSE',
+          message: `GET ${EVM_SUBACCOUNTS_PATH} returned a malformed entry`,
+        });
+      }
+      return { address: canonicalFelt(address), index };
+    });
+  }
+
+  /**
    * Generates a session key, has the owner sign the grant (one wallet
    * prompt), and registers the session. On any failure the new key is
    * deleted.
+   *
+   * A grant from a wallet with no Paradex account opens the account too; it
+   * may list no subaccounts. Pass `onboarding` for that case.
+   *
+   * When the owner signer knows its address and the grant lists
+   * subaccounts, each is checked against {@link listSubaccounts} before the
+   * owner is asked to sign.
    */
   async open(params: OpenSessionParams): Promise<Session> {
+    const { onboarding, ...grantParams } = params;
     const limitOptions: LimitOptions = {
-      limitCaps: params.limitCaps ?? this.limitCaps,
-      enforcedLimits: params.enforcedLimits ?? this.enforcedLimits,
+      limitCaps: grantParams.limitCaps ?? this.limitCaps,
+      enforcedLimits: grantParams.enforcedLimits ?? this.enforcedLimits,
     };
     let key = await SessionKey.generate();
     const grant = createSessionGrant({
-      ...params,
+      ...grantParams,
       ...limitOptions,
-      issuedAt: params.issuedAt ?? this.now(),
+      // POST /v2/sessions caps every grant at the browser lifetime.
+      sessionType: 'browser',
+      issuedAt: grantParams.issuedAt ?? this.now(),
       paradexChain: this.paradexChain,
       environment: this.environment,
       sessionKey: key.publicKey,
     });
+    await this.assertSubaccountsOwned(grant);
 
     await this.storage.put(key.record);
     try {
@@ -176,12 +285,19 @@ export class SessionConnector {
       const response = await this.transport({
         method: 'POST',
         url: `${this.apiUrl}${SESSIONS_PATH}`,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(onboarding?.privyAccessToken != null &&
+          onboarding.privyAccessToken !== ''
+            ? { 'PARADEX-PRIVY-ACCESS-TOKEN': onboarding.privyAccessToken }
+            : {}),
+        },
         body: JSON.stringify({
           grant,
           signature: ownerSignature,
           signature_chain_id: signatureChainId,
           signature_type: 'eip712',
+          ...onboardingBody(onboarding),
         }),
       });
       if (response.status < 200 || response.status >= 300) {
@@ -254,6 +370,29 @@ export class SessionConnector {
    */
   async forget(session: Pick<Session, 'key'>): Promise<void> {
     await this.storage.delete(session.key.publicKey);
+  }
+
+  /**
+   * Refuses, before the owner signs, a grant listing an account that is not
+   * one of the owner wallet's sub-accounts: the server would refuse it with
+   * `ACCOUNT_NOT_ELIGIBLE`. Skipped when the signer cannot name its address.
+   */
+  private async assertSubaccountsOwned(grant: SessionGrant): Promise<void> {
+    if (grant.subaccounts.length === 0 || this.owner.getAddress == null) {
+      return;
+    }
+    const owned = new Set(
+      (await this.listSubaccounts(await this.owner.getAddress())).map(
+        (s) => s.address,
+      ),
+    );
+    const foreign = grant.subaccounts.find((a) => !owned.has(a));
+    if (foreign != null) {
+      throw new SessionGrantError(
+        'ACCOUNT_NOT_ELIGIBLE',
+        `subaccounts: ${foreign} is not a sub-account of the owner wallet`,
+      );
+    }
   }
 
   private async fromRecord(
