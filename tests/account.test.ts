@@ -1,5 +1,4 @@
 import type { SignatureType } from '@noble/curves/abstract/weierstrass';
-import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { ethers } from 'ethers';
 import * as Starknet from 'starknet';
 
@@ -9,6 +8,7 @@ import {
   buildEthereumStarkKeyTypedData,
   ethersSignerAdapter,
 } from '../src/ethereum-signer';
+import * as keyDerivation from '../src/key-derivation';
 
 import { configFactory } from './factories/paradex-config';
 import { createMockProvider } from './mocks/provider';
