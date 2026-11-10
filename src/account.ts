@@ -232,25 +232,49 @@ interface RawOnboardingInfo {
   };
 }
 
-interface FetchOnboardingParams {
+type FetchOnboardingParams = {
   /** Paradex REST API base URL, e.g. `https://api.testnet.paradex.trade/v1` */
   readonly apiUrl: string;
-  /** Paradex (Stark) public key in hex format */
-  readonly publicKey: Hex;
-}
+} & (
+  | {
+      /** Paradex (Stark) public key in hex format */
+      readonly publicKey: Hex;
+      readonly ethAddress?: undefined;
+    }
+  | {
+      /**
+       * The owner wallet of an EVM-owned (EIP-191) account. For a wallet with
+       * no account yet, the address is the one its first session grant opens.
+       */
+      readonly ethAddress: string;
+      readonly publicKey?: undefined;
+    }
+);
 
 /**
- * Fetches the account address and onboarding status for a Starknet public key
- * from the Paradex API. Public endpoint, no authentication required.
+ * Fetches the account address and onboarding status for a Starknet public key,
+ * or for the wallet of an EVM-owned account, from the Paradex API. Public
+ * endpoint, no authentication required.
  */
-export async function fetchOnboarding({
-  apiUrl,
-  publicKey,
-}: FetchOnboardingParams): Promise<OnboardingInfo> {
-  const query = new URLSearchParams({
-    account_signer_type: 'starknet',
-    public_key: publicKey,
-  });
+export async function fetchOnboarding(
+  params: FetchOnboardingParams,
+): Promise<OnboardingInfo> {
+  const { apiUrl } = params;
+  let query: URLSearchParams;
+  if (params.ethAddress != null) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(params.ethAddress)) {
+      throw new Error('ethAddress must be a 0x-prefixed 20-byte address');
+    }
+    query = new URLSearchParams({
+      account_signer_type: 'eip191',
+      eth_address: params.ethAddress,
+    });
+  } else {
+    query = new URLSearchParams({
+      account_signer_type: 'starknet',
+      public_key: params.publicKey,
+    });
+  }
   const resp = await fetch(
     `${apiUrl.replace(/\/+$/, '')}/onboarding?${query.toString()}`,
   );

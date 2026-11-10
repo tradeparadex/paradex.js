@@ -375,17 +375,29 @@ export class SessionConnector {
   /**
    * Refuses, before the owner signs, a grant listing an account that is not
    * one of the owner wallet's sub-accounts: the server would refuse it with
-   * `ACCOUNT_NOT_ELIGIBLE`. Skipped when the signer cannot name its address.
+   * `ACCOUNT_NOT_ELIGIBLE`. Skipped when the signer cannot name its address,
+   * or the server does not list sub-accounts.
    */
   private async assertSubaccountsOwned(grant: SessionGrant): Promise<void> {
     if (grant.subaccounts.length === 0 || this.owner.getAddress == null) {
       return;
     }
-    const owned = new Set(
-      (await this.listSubaccounts(await this.owner.getAddress())).map(
-        (s) => s.address,
-      ),
-    );
+    let listed: EvmSubaccount[];
+    try {
+      listed = await this.listSubaccounts(await this.owner.getAddress());
+    } catch (error) {
+      // A server without the listing route answers an uncoded 404; leave the
+      // check to POST /v2/sessions, which refuses with ACCOUNT_NOT_ELIGIBLE.
+      if (
+        error instanceof SessionApiError &&
+        error.status === 404 &&
+        error.code == null
+      ) {
+        return;
+      }
+      throw error;
+    }
+    const owned = new Set(listed.map((s) => s.address));
     const foreign = grant.subaccounts.find((a) => !owned.has(a));
     if (foreign != null) {
       throw new SessionGrantError(

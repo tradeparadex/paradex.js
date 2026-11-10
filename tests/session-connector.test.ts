@@ -378,8 +378,12 @@ describe('SessionConnector.open', () => {
 });
 
 describe('SessionConnector.open: lifetime', () => {
-  test('applies the 30-day cap POST /v2/sessions applies, even for sessionType api', async () => {
-    const { connector, sign, transport } = setup();
+  test('applies the 30-day cap POST /v2/sessions applies, even for sessionType api, before storing a key', async () => {
+    const memory = memorySessionStorage();
+    const put = jest.fn(memory.put);
+    const { connector, sign, transport } = setup({
+      storage: { ...memory, put },
+    });
     const error = await connector
       .open({
         limits: LIMITS,
@@ -389,6 +393,7 @@ describe('SessionConnector.open: lifetime', () => {
       })
       .catch((e: unknown) => e);
     expectCode(error, 'TTL_EXCEEDED');
+    expect(put).not.toHaveBeenCalled();
     expect(sign).not.toHaveBeenCalled();
     expect(transport).not.toHaveBeenCalled();
   });
@@ -437,9 +442,13 @@ describe('SessionConnector.open: opening a new account', () => {
     expect(Object.keys(session.grant)).not.toContain('onboarding');
   });
 
-  test('sends none of them when not given', async () => {
+  test('sends none of them when not given or empty', async () => {
     const { connector, transport } = setup();
-    await connector.open({ limits: LIMITS, account: MAIN, onboarding: {} });
+    await connector.open({
+      limits: LIMITS,
+      account: MAIN,
+      onboarding: { referralCode: '', marketingCode: '', privyAccessToken: '' },
+    });
     const req = transport.mock.calls[0]?.[0];
     expect(req?.headers).toEqual({ 'Content-Type': 'application/json' });
     const body = JSON.parse(req?.body ?? '{}') as Record<string, unknown>;
@@ -503,6 +512,53 @@ describe('SessionConnector sub-accounts', () => {
     });
   });
 
+  test('listSubaccounts surfaces a refusal and a negative index', async () => {
+    const refused = setup({
+      respond: () => ({
+        status: 400,
+        body: { error: 'VALIDATION_ERROR', message: 'bad' },
+      }),
+    });
+    await expect(
+      refused.connector.listSubaccounts(OWNER),
+    ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_ERROR' });
+    const negative = setup({ respond: routed([{ address: SUB, index: -1 }]) });
+    await expect(
+      negative.connector.listSubaccounts(OWNER),
+    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  test('a server without the listing route leaves the check to POST /v2/sessions', async () => {
+    const { connector, transport } = setup({
+      ownerAddress: OWNER,
+      respond: (req) =>
+        req.url.includes('/v2/onboarding/subaccounts')
+          ? { status: 404, body: { message: 'Not Found' } }
+          : registered(req),
+    });
+    const session = await connector.open({
+      limits: LIMITS,
+      account: MAIN,
+      subaccounts: [SUB],
+    });
+    expect(session.grant.subaccounts).toEqual([SUB]);
+    expect(transport).toHaveBeenCalledTimes(2);
+  });
+
+  test('a coded 404 from the listing still fails before signing', async () => {
+    const { connector, sign } = setup({
+      ownerAddress: OWNER,
+      respond: () => ({
+        status: 404,
+        body: { error: 'NOT_FOUND', message: 'gone' },
+      }),
+    });
+    await expect(
+      connector.open({ limits: LIMITS, account: MAIN, subaccounts: [SUB] }),
+    ).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
+    expect(sign).not.toHaveBeenCalled();
+  });
+
   test('listSubaccounts refuses a bad address and a malformed answer', async () => {
     const { connector } = setup({ respond: routed([{ address: SUB }]) });
     await expect(connector.listSubaccounts('0x12')).rejects.toThrow(
@@ -549,12 +605,16 @@ describe('SessionConnector sub-accounts', () => {
 
   test('at most 32 sub-accounts', async () => {
     const { connector } = setup();
-    const many = Array.from(
-      { length: 33 },
-      (_, i) => '0x' + (i + 0x100).toString(16),
-    );
+    const subs = (n: number): string[] =>
+      Array.from({ length: n }, (_, i) => '0x' + (i + 0x100).toString(16));
+    const ok = await connector.open({
+      limits: LIMITS,
+      account: MAIN,
+      subaccounts: subs(32),
+    });
+    expect(ok.grant.subaccounts).toHaveLength(32);
     const error = await connector
-      .open({ limits: LIMITS, account: MAIN, subaccounts: many })
+      .open({ limits: LIMITS, account: MAIN, subaccounts: subs(33) })
       .catch((e: unknown) => e);
     expectCode(error, 'INVALID_FIELD');
   });

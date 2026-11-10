@@ -836,6 +836,17 @@ describe('PasskeyGrant', () => {
 });
 
 describe('SessionMint', () => {
+  test('lists at most 32 subaccounts', () => {
+    const subs = (n: number): string[] =>
+      Array.from({ length: n }, (_, i) => '0x' + (i + 0x100).toString(16));
+    expect(() => {
+      validateSessionMint({ ...mint(), subaccounts: subs(32) }, ENFORCED);
+    }).not.toThrow();
+    expectCode(() => {
+      validateSessionMint({ ...mint(), subaccounts: subs(33) }, ENFORCED);
+    }, 'INVALID_FIELD');
+  });
+
   test('the vector validates', () => {
     expect(() => {
       validateSessionMint(mint(), ENFORCED);
