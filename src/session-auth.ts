@@ -26,7 +26,20 @@ function paradexDomain(paradexChain: string): Starknet.TypedData['domain'] {
 /** Session JWTs live at most 15 minutes, and never past the session. */
 export const SESSION_AUTH_MAX_TTL = 15 * 60;
 
+/** The path the `/auth` request signs, whichever key signs in. */
 export const AUTH_PATH = '/v1/auth';
+
+/**
+ * Where a session key signs in: `POST /v1/auth/{public_key}`. Plain
+ * `/v1/auth` verifies the signature against the account's main key, so a
+ * session key is refused there. The signed path stays {@link AUTH_PATH}.
+ */
+export function sessionAuthPath(sessionPublicKey: string): string {
+  if (!/^0x[0-9a-fA-F]{1,64}$/.test(sessionPublicKey)) {
+    throw new Error('session public key must be 0x-prefixed hex');
+  }
+  return `${AUTH_PATH}/${sessionPublicKey}`;
+}
 
 export function buildAuthTypedData(
   paradexChain: string,

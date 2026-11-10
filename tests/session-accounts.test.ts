@@ -1,10 +1,6 @@
 import * as Starknet from 'starknet';
 
-import {
-  NOT_AVAILABLE_TO_SESSIONS,
-  SessionAccounts,
-  type GrantState,
-} from '../src/session-accounts';
+import { SessionAccounts, type GrantState } from '../src/session-accounts';
 import { buildOrderTypedData } from '../src/session-auth';
 import { SessionKey } from '../src/session-key';
 import {
@@ -104,7 +100,7 @@ function setup(
   const transport = mockTransport(async (req) => {
     const routed = await options.route?.(req);
     if (routed != null) return routed;
-    if (req.url.endsWith('/v1/auth')) {
+    if (req.url.includes('/v1/auth/')) {
       // As the server does: a revoked or expired session key gets a 400.
       if (server.state === 'active') return auth(req);
       return {
@@ -141,7 +137,7 @@ function setup(
   const authCalls = (account?: string): HttpRequest[] =>
     requests().filter(
       (req) =>
-        req.url.endsWith('/v1/auth') &&
+        req.url.includes('/v1/auth/') &&
         (account == null ||
           req.headers['PARADEX-STARKNET-ACCOUNT'] === account),
     );
@@ -188,7 +184,7 @@ describe('construction refusals', () => {
     });
     await accounts.getJwt(MAIN);
     expect(transport.mock.calls[0]?.[0].url).toBe(
-      'https://api.prod.paradex.trade/v1/auth',
+      `https://api.prod.paradex.trade/v1/auth/${key.publicKey}`,
     );
   });
 
@@ -218,7 +214,10 @@ describe('JWTs', () => {
     for (const account of [MAIN, SUB]) {
       const [req] = authCalls(account);
       expect(req?.method).toBe('POST');
-      expect(req?.url).toBe('https://api.testnet.paradex.trade/v1/auth');
+      // The subkey form: plain /v1/auth checks the account's main key.
+      expect(req?.url).toBe(
+        `https://api.testnet.paradex.trade/v1/auth/${key.publicKey}`,
+      );
       expect(req?.headers['PARADEX-TIMESTAMP']).toBe(String(T0));
       // ≤ 15 minutes.
       expect(req?.headers['PARADEX-SIGNATURE-EXPIRATION']).toBe(
@@ -274,12 +273,12 @@ describe('JWTs', () => {
   test('a bad /auth response is an error, not a drop', async () => {
     const { accounts, onDropped } = setup({
       route: (req) =>
-        req.url.endsWith('/v1/auth') ? { status: 200, body: {} } : undefined,
+        req.url.includes('/v1/auth/') ? { status: 200, body: {} } : undefined,
     });
     await expect(accounts.getJwt(MAIN)).rejects.toThrow(/no jwt_token/);
     const failing = setup({
       route: (req) =>
-        req.url.endsWith('/v1/auth')
+        req.url.includes('/v1/auth/')
           ? { status: 500, body: { error: 'SERVER_ERROR' } }
           : undefined,
     });
@@ -306,7 +305,7 @@ describe('start', () => {
     const h = setup({
       grant: grantFor({ subaccounts }),
       route: async (req) => {
-        if (!req.url.endsWith('/v1/auth')) return undefined;
+        if (!req.url.includes('/v1/auth/')) return undefined;
         peak = Math.max(peak, ++active);
         if (active === 10) open();
         await full;
@@ -522,30 +521,41 @@ describe('REST routing', () => {
 });
 
 describe('revocation', () => {
-  test.each(['/v1/rfqs', '/v1/rfq/123/execute', '/v1/rfqs?status=open'])(
-    'a 403 from RFQ (%s) says sessions cannot use it yet, without a drop',
-    async (path) => {
+  test.each([
+    ['/v1/rfqs', 403, 'REQUEST_NOT_ALLOWED'],
+    ['/v1/rfqs/123/execute', 403, 'INVALID_TOKEN_SCOPE'],
+    ['/v1/rfqs/drafts', 400, 'NOT_ONBOARDED'],
+  ])(
+    'an RFQ refusal (%s) keeps the server code, without a drop',
+    async (path, status, code) => {
       const h = setup({
         route: (req) =>
-          req.url.includes('/v1/rfq')
-            ? { status: 403, body: { error: 'FORBIDDEN' } }
+          req.url.includes('/v1/rfqs')
+            ? { status, body: { error: code, message: 'refused' } }
             : undefined,
       });
       const error = await caught(
-        h.accounts.request(MAIN, { method: 'GET', path }),
+        h.accounts.request(MAIN, { method: 'POST', path, body: {} }),
       );
       expect(error).toBeInstanceOf(SessionApiError);
-      expect(error).toMatchObject({
-        status: 403,
-        code: NOT_AVAILABLE_TO_SESSIONS,
-        message:
-          'NOT_AVAILABLE_TO_SESSIONS: RFQ is not available to sessions yet',
-      });
+      expect(error).toMatchObject({ status, code });
       expect(h.calls('/status')).toHaveLength(0);
       expect(h.authCalls(MAIN)).toHaveLength(1);
       expect(h.onDropped).not.toHaveBeenCalled();
     },
   );
+
+  test('RFQ calls succeed for a session the server lets through', async () => {
+    const h = setup({
+      route: (req) =>
+        req.url.endsWith('/v1/rfqs')
+          ? { status: 200, body: { rfq_id: 'r1' } }
+          : undefined,
+    });
+    await expect(
+      h.accounts.request(MAIN, { method: 'POST', path: '/v1/rfqs', body: {} }),
+    ).resolves.toEqual({ rfq_id: 'r1' });
+  });
 
   test('a 403 elsewhere is passed through and does not trigger a status check', async () => {
     const h = setup({
@@ -691,7 +701,7 @@ describe('revocation', () => {
   test('other 400s from /auth do not trigger a status check', async () => {
     const h = setup({
       route: (req) =>
-        req.url.endsWith('/v1/auth')
+        req.url.includes('/v1/auth/')
           ? { status: 400, body: { error: 'INVALID_TIMESTAMP' } }
           : undefined,
     });
@@ -705,7 +715,7 @@ describe('revocation', () => {
   test('a refused /auth on an active grant is an error, not a drop', async () => {
     const h = setup({
       route: (req) =>
-        req.url.endsWith('/v1/auth')
+        req.url.includes('/v1/auth/')
           ? { status: 401, body: { error: 'INVALID_SIGNATURE' } }
           : undefined,
     });
@@ -811,7 +821,7 @@ describe('revocation', () => {
     });
     const { accounts } = setup({
       route: async (req) => {
-        if (req.url.endsWith('/v1/auth')) await gate;
+        if (req.url.includes('/v1/auth/')) await gate;
         return undefined;
       },
     });
@@ -1071,7 +1081,7 @@ describe('websockets', () => {
     const h = setup({
       jwtTtl: 300,
       route: (req) =>
-        failAuth && req.url.endsWith('/v1/auth')
+        failAuth && req.url.includes('/v1/auth/')
           ? { status: 503, body: {} }
           : undefined,
     });

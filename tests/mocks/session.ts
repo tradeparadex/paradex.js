@@ -63,12 +63,20 @@ export function mockTransport(
   return jest.fn(async (req: HttpRequest) => await handler(req));
 }
 
-/** Mirrors the server's `/auth`: checks the session-key signature. */
+/**
+ * Mirrors the server's `/auth`: checks the signature against the key named in
+ * `/v1/auth/{public_key}`. Plain `/v1/auth` checks the account's main key,
+ * which a session key never matches.
+ */
 export function authResponder(
   key: Pick<SessionKey, 'publicKey'>,
   jwtTtl = 300,
 ): (req: HttpRequest) => HttpResponse {
   return (req) => {
+    const pathKey = new URL(req.url).pathname.match(/^\/v1\/auth\/(.+)$/)?.[1];
+    if (pathKey !== key.publicKey) {
+      return { status: 401, body: { error: 'INVALID_SIGNATURE' } };
+    }
     const account = req.headers['PARADEX-STARKNET-ACCOUNT'] ?? '';
     const timestamp = Number(req.headers['PARADEX-TIMESTAMP']);
     const expiration = Number(req.headers['PARADEX-SIGNATURE-EXPIRATION']);

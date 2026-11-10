@@ -1,5 +1,4 @@
 import type { SignatureType } from '@noble/curves/abstract/weierstrass';
-import { keyDerivation } from '@starkware-industries/starkware-crypto-utils';
 import { ethers } from 'ethers';
 import * as Starknet from 'starknet';
 
@@ -9,6 +8,7 @@ import {
   buildEthereumStarkKeyTypedData,
   ethersSignerAdapter,
 } from '../src/ethereum-signer';
+import * as keyDerivation from '../src/key-derivation';
 
 import { configFactory } from './factories/paradex-config';
 import { createMockProvider } from './mocks/provider';
@@ -497,6 +497,38 @@ describe('fetchOnboarding', () => {
       accountSignerType: 'starknet',
       derivationInfo: { classHash: '0x1', proxyClassHash: '0x2' },
     });
+  });
+
+  test('looks up an EVM-owned account by its wallet', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        address: '0xdef',
+        exists: false,
+        account_signer_type: 'eip191',
+        derivation_info: { class_hash: '0x3' },
+      }),
+    });
+    global.fetch = fetchMock;
+    const wallet = '0x1111111111111111111111111111111111111111';
+
+    const info = await Account.fetchOnboarding({
+      apiUrl: 'https://api.example.paradex.trade/v1/',
+      ethAddress: wallet,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `https://api.example.paradex.trade/v1/onboarding?account_signer_type=eip191&eth_address=${wallet}`,
+    );
+    expect(info).toEqual({
+      address: '0xdef',
+      exists: false,
+      accountSignerType: 'eip191',
+      derivationInfo: { classHash: '0x3' },
+    });
+    await expect(
+      Account.fetchOnboarding({ apiUrl: 'https://x', ethAddress: '0x12' }),
+    ).rejects.toThrow(/20-byte address/);
   });
 
   test('includes the API error message when the request fails', async () => {

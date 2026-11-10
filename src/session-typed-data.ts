@@ -56,6 +56,10 @@ const DAY = 24 * 60 * 60;
 export const SESSION_TTL = {
   browserDefault: 7 * DAY,
   browserMax: 30 * DAY,
+  /**
+   * Cap for IP-pinned API sessions. `POST /v2/sessions` applies
+   * `browserMax` to every grant, so `SessionConnector` never uses this.
+   */
   apiMax: 180 * DAY,
   /** Cap for grants that include `trade:block` or `account:settings`. */
   sensitiveScopeMax: 7 * DAY,
@@ -72,8 +76,16 @@ const MAX_ISSUED_AT_SKEW = 5 * 60;
 /** Labels are printable ASCII of at most this many characters. */
 const MAX_LABEL_LENGTH = 64;
 const LABEL_RE = /^[\x20-\x7e]*$/;
-/** The only scope a passkey ceiling may carry. */
-const PASSKEY_CEILING_SCOPES: readonly SessionScope[] = ['trade'];
+/** Scopes the ceiling of a first-party (Paradex app) passkey may carry. */
+const FIRST_PARTY_PASSKEY_CEILING_SCOPES: readonly SessionScope[] = [
+  'trade',
+  'trade:rfq',
+  'account:settings',
+];
+/** The only scope the ceiling of a builder passkey may carry. */
+const BUILDER_PASSKEY_CEILING_SCOPES: readonly SessionScope[] = ['trade'];
+/** A grant, mint or passkey ceiling lists at most this many subaccounts. */
+export const MAX_GRANT_SUBACCOUNTS = 32;
 
 export type SessionGrantErrorCode =
   | 'INVALID_FIELD'
@@ -86,6 +98,7 @@ export type SessionGrantErrorCode =
   | 'GRANT_REVOKED'
   | 'ENVIRONMENT_MISMATCH'
   | 'ACCOUNT_NOT_IN_GRANT'
+  | 'ACCOUNT_NOT_ELIGIBLE'
   | 'EXCEEDS_CEILING'
   | 'SCOPE_NOT_ALLOWED'
   | 'LIMIT_INVALID';
@@ -564,6 +577,9 @@ function requireUniqueAddresses(
   anchor: string,
 ): void {
   if (!Array.isArray(values)) throw invalid(field, 'must be an array');
+  if (values.length > MAX_GRANT_SUBACCOUNTS) {
+    throw invalid(field, `lists more than ${MAX_GRANT_SUBACCOUNTS} accounts`);
+  }
   const seen = new Set<string>();
   values.forEach((v, i) => {
     requireAddress(`${field}[${i}]`, v);
@@ -747,9 +763,10 @@ export function maxSessionTtl(
 
 export interface ValidateSessionGrantOptions extends LimitOptions {
   /**
-   * Which lifetime cap applies. Defaults to `browser` (30 days), which is
-   * what the server applies when a session is registered; IP-pinned API
-   * grants may last up to 180 days.
+   * Which lifetime cap applies. Defaults to `browser` (30 days), the cap
+   * `POST /v2/sessions` applies to every grant. `api` (180 days) is the cap
+   * for IP-pinned API sessions, which that endpoint does not open; a grant
+   * longer than 30 days is refused there.
    */
   readonly sessionType?: SessionType;
   /**
@@ -881,8 +898,12 @@ export function validatePasskeyGrant(
     throw invalid('ceiling', 'is required');
   }
   validateScopes(ceiling.scopes, 'ceiling.scopes');
+  const ceilingScopes =
+    grant.builderAccount === NO_BUILDER
+      ? FIRST_PARTY_PASSKEY_CEILING_SCOPES
+      : BUILDER_PASSKEY_CEILING_SCOPES;
   const notCeilingScope = ceiling.scopes.find(
-    (s) => !PASSKEY_CEILING_SCOPES.includes(s),
+    (s) => !ceilingScopes.includes(s),
   );
   if (notCeilingScope != null) {
     throw new SessionGrantError(
@@ -1120,6 +1141,7 @@ export interface CreateSessionGrantParams {
   readonly expiresAt?: number;
   /** Defaults to 7 days, the browser-session default. */
   readonly ttlSeconds?: number;
+  /** See {@link ValidateSessionGrantOptions.sessionType}. */
   readonly sessionType?: SessionType;
   /** See {@link ValidateSessionGrantOptions.clockSkewSeconds}. */
   readonly clockSkewSeconds?: number;
