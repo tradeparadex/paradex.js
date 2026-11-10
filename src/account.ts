@@ -211,10 +211,11 @@ export interface OnboardingDerivationInfo {
 }
 
 /**
- * Onboarding status of a Starknet public key, as reported by the Paradex API.
+ * Onboarding status of a Starknet public key, or of an EVM wallet's
+ * EVM-owned account, as reported by the Paradex API.
  */
 export interface OnboardingInfo {
-  /** The Paradex account address for the public key. */
+  /** The Paradex account address for the public key or wallet. */
   readonly address: Hex;
   /** Whether the account has already been onboarded. */
   readonly exists: boolean;

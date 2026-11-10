@@ -559,6 +559,17 @@ describe('SessionConnector sub-accounts', () => {
     expect(sign).not.toHaveBeenCalled();
   });
 
+  test('any other uncoded listing failure still fails before signing', async () => {
+    const { connector, sign } = setup({
+      ownerAddress: OWNER,
+      respond: () => ({ status: 503, body: 'Service Unavailable' }),
+    });
+    await expect(
+      connector.open({ limits: LIMITS, account: MAIN, subaccounts: [SUB] }),
+    ).rejects.toMatchObject({ status: 503, code: undefined });
+    expect(sign).not.toHaveBeenCalled();
+  });
+
   test('listSubaccounts refuses a bad address and a malformed answer', async () => {
     const { connector } = setup({ respond: routed([{ address: SUB }]) });
     await expect(connector.listSubaccounts('0x12')).rejects.toThrow(

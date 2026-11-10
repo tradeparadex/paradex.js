@@ -282,7 +282,7 @@ Show the owner what they are approving with `SessionTypedData.summarizeGrant(gra
 
 `SessionConnector` opens a session with **one** wallet prompt. A session cannot withdraw. Its trading losses are capped only by the grant's `maxLoss`, and while that is `"none"` (the default) they are not capped by the session. The Stark session key is generated in the page and stored encrypted under a non-extractable WebCrypto key; the private key is decrypted only while signing. The grant is registered with `POST /v2/sessions`.
 
-A grant from a wallet with no Paradex account yet opens the account along with its first session; the account is deployed when it is first funded. Such a grant lists no subaccounts, and its `account` must be the address the server derives for the wallet, which `Paradex.Onboarding.fetch({ apiUrl, ethAddress })` returns (with `exists: false`); any other address fails with `INVALID_SIGNATURE` after the wallet has signed. Pass `onboarding: { referralCode, marketingCode, utm, privyAccessToken }` to `open()` for this case: the fields are sent with the grant but not signed, and a grant naming a builder ignores them. Refusals, including the onboarding ones (`INSUFFICIENT_MIN_CHAIN_BALANCE`, `PARENT_ADDRESS_ALREADY_ONBOARDED`, `ONBOARDING_RATE_LIMITED`, `SESSIONS_DISABLED` and others), throw a `SessionApiError` whose `code` is typed as `SessionApiErrorCode`.
+A grant from a wallet with no Paradex account yet opens the account along with its first session; the account is deployed when it is first funded. Such a grant lists no subaccounts, and its `account` must be the address the server derives for the wallet, which `Paradex.Onboarding.fetch({ apiUrl, ethAddress })` returns (with `exists: false`; this `apiUrl` is the `/v1` base, such as `https://api.testnet.paradex.trade/v1`, not the connector's host root); any other address fails with `INVALID_SIGNATURE` after the wallet has signed. Pass `onboarding: { referralCode, marketingCode, utm, privyAccessToken }` to `open()` for this case: the fields are sent with the grant but not signed, and a grant naming a builder ignores them. Refusals, including the onboarding ones (`INSUFFICIENT_MIN_CHAIN_BALANCE`, `PARENT_ADDRESS_ALREADY_ONBOARDED`, `ONBOARDING_RATE_LIMITED`, `SESSIONS_DISABLED` and others), throw a `SessionApiError` whose `code` is typed as `SessionApiErrorCode`.
 
 An EVM-owned account's sub-accounts can be listed before signing in with `connector.listSubaccounts(ethAddress)`. When the owner signer knows its address (`ownerSignerFromEip1193` does; pass `address` to `ownerSignerFromExternal`), `open()` checks a grant's `subaccounts` against that list before the wallet is asked to sign.
 
@@ -477,9 +477,10 @@ For a full React application example, see: [paradex-react-example](https://githu
 
 ### Onboarding
 
-| Method                                    | Description                                             | Returns          |
-| ----------------------------------------- | ------------------------------------------------------- | ---------------- |
-| `Onboarding.fetch({ apiUrl, publicKey })` | Get the account address and onboarding status for a key | `OnboardingInfo` |
+| Method                                     | Description                                             | Returns          |
+| ------------------------------------------ | ------------------------------------------------------- | ---------------- |
+| `Onboarding.fetch({ apiUrl, publicKey })`  | Get the account address and onboarding status for a key | `OnboardingInfo` |
+| `Onboarding.fetch({ apiUrl, ethAddress })` | The same for an EVM wallet's EVM-owned account          | `OnboardingInfo` |
 
 ### Signer
 
