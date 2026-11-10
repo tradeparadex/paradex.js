@@ -76,10 +76,7 @@ export {
   UNCAPPED_LIMITS,
 } from './session-typed-data.js';
 export { SessionConnector } from './session-connector.js';
-export {
-  NOT_AVAILABLE_TO_SESSIONS,
-  SessionAccounts,
-} from './session-accounts.js';
+export { SessionAccounts } from './session-accounts.js';
 export { SessionApiError } from './session-transport.js';
 export { SessionKey } from './session-key.js';
 

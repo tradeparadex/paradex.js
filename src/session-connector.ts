@@ -95,7 +95,7 @@ export interface SessionOnboardingParams {
 
 export type OpenSessionParams = Omit<
   CreateSessionGrantParams,
-  'paradexChain' | 'environment' | 'sessionKey'
+  'paradexChain' | 'environment' | 'sessionKey' | 'sessionType'
 > & {
   /** Used only when the grant opens a new account. */
   readonly onboarding?: SessionOnboardingParams;
@@ -246,7 +246,8 @@ export class SessionConnector {
    *
    * When the owner signer knows its address and the grant lists
    * subaccounts, each is checked against {@link listSubaccounts} before the
-   * owner is asked to sign.
+   * owner is asked to sign. The grant always takes the browser lifetime cap,
+   * the one `POST /v2/sessions` applies.
    */
   async open(params: OpenSessionParams): Promise<Session> {
     const { onboarding, ...grantParams } = params;
@@ -373,10 +374,12 @@ export class SessionConnector {
   }
 
   /**
-   * Refuses, before the owner signs, a grant listing an account that is not
-   * one of the owner wallet's sub-accounts: the server would refuse it with
-   * `ACCOUNT_NOT_ELIGIBLE`. Skipped when the signer cannot name its address,
-   * or the server does not list sub-accounts.
+   * Refuses, before the owner signs, a grant listing an account that
+   * {@link listSubaccounts} does not return for the owner wallet. The listing
+   * leaves out archived children, which `POST /v2/sessions` may still accept,
+   * so this check can be stricter than the server. It is advisory: skipped
+   * when the signer cannot name its address or the listing fails for any
+   * reason, leaving `POST /v2/sessions` to decide.
    */
   private async assertSubaccountsOwned(grant: SessionGrant): Promise<void> {
     if (grant.subaccounts.length === 0 || this.owner.getAddress == null) {
@@ -385,17 +388,9 @@ export class SessionConnector {
     let listed: EvmSubaccount[];
     try {
       listed = await this.listSubaccounts(await this.owner.getAddress());
-    } catch (error) {
-      // A server without the listing route answers an uncoded 404; leave the
-      // check to POST /v2/sessions, which refuses with ACCOUNT_NOT_ELIGIBLE.
-      if (
-        error instanceof SessionApiError &&
-        error.status === 404 &&
-        error.code == null
-      ) {
-        return;
-      }
-      throw error;
+    } catch {
+      // POST /v2/sessions refuses an ineligible account itself.
+      return;
     }
     const owned = new Set(listed.map((s) => s.address));
     const foreign = grant.subaccounts.find((a) => !owned.has(a));

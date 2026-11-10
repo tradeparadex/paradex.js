@@ -131,15 +131,6 @@ function isAuthRefusal(error: SessionApiError): boolean {
 }
 
 /**
- * @deprecated RFQ endpoints now accept session tokens, and their refusals
- * keep the server's code: `INVALID_TOKEN_SCOPE` for a grant without
- * `trade:rfq`, `REQUEST_NOT_ALLOWED` when the session may not create,
- * execute or draft RFQs, `NOT_ONBOARDED` before the account is deployed.
- * Nothing raises this code any more.
- */
-export const NOT_AVAILABLE_TO_SESSIONS = 'NOT_AVAILABLE_TO_SESSIONS';
-
-/**
  * Trades every account a grant lists with one session key: a JWT per account
  * (`POST /v1/auth/{session_public_key}` with `PARADEX-STARKNET-ACCOUNT`,
  * signed by the session key), one

@@ -1141,10 +1141,7 @@ export interface CreateSessionGrantParams {
   readonly expiresAt?: number;
   /** Defaults to 7 days, the browser-session default. */
   readonly ttlSeconds?: number;
-  /**
-   * See {@link ValidateSessionGrantOptions.sessionType}. Ignored by
-   * `SessionConnector.open()`, which always applies the browser cap.
-   */
+  /** See {@link ValidateSessionGrantOptions.sessionType}. */
   readonly sessionType?: SessionType;
   /** See {@link ValidateSessionGrantOptions.clockSkewSeconds}. */
   readonly clockSkewSeconds?: number;
