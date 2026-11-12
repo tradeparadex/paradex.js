@@ -82,17 +82,21 @@ const client = await Paradex.Client.fromStarknetAccount({
 
 ### Account Address
 
-By default the SDK computes the Paradex account address locally from the account class hashes in the config. Accounts created with the current Paradex account class (for example, accounts onboarded through the Paradex app) have a different address than this local derivation produces. Set `serverDeriveAddress: true` to fetch the address from the Paradex API instead:
+The SDK gets the Paradex account address from the Paradex API (`GET /onboarding`), so it matches the account the Paradex app created for the same key, whichever account class it was created with. For a key with no account yet, it is the address a new account will be created at.
+
+The API URL comes from the config returned by `Paradex.Config.fetch()`. If you build the config yourself, pass `apiUrl` (for example `https://api.testnet.paradex.trade/v1`):
 
 ```typescript
 const client = await Paradex.Client.fromEthSigner({
   config,
   signer,
-  serverDeriveAddress: true,
+  apiUrl: 'https://api.testnet.paradex.trade/v1',
 });
 ```
 
-The API URL comes from the config returned by `Paradex.Config.fetch()`. If you build the config yourself, pass `apiUrl` (for example `https://api.testnet.paradex.trade/v1`) together with `serverDeriveAddress`. The same options are accepted by `Paradex.Client.fromStarknetAccount()`.
+If the request fails, creating the client throws. It never falls back to a locally computed address, which can belong to a different account.
+
+To compute the address locally instead, with no request, pass `serverDeriveAddress: false`. That computes the address of an account created with the legacy proxy class, so use it only for such accounts. The same options are accepted by `Paradex.Client.fromStarknetAccount()`.
 
 To look up an address and onboarding status directly from a Paradex public key (or, for an EVM-owned account, from its wallet with `ethAddress` instead of `publicKey`):
 

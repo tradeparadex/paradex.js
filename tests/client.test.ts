@@ -17,6 +17,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });
@@ -50,7 +51,6 @@ describe('ParadexClient', () => {
             paradexApiUrl: 'https://api.example.paradex.trade/v1',
           },
           signer: ethersSignerAdapter(wallet),
-          serverDeriveAddress: true,
         });
 
         expect(client.getAddress()).toBe(serverAddress);
@@ -74,7 +74,11 @@ describe('ParadexClient', () => {
         );
 
       await expect(
-        ParadexClient.createFromEthSigner({ config, signer }),
+        ParadexClient.createFromEthSigner({
+          config,
+          signer,
+          serverDeriveAddress: false,
+        }),
       ).rejects.toThrow('Failed to create authenticated provider');
     });
   });
@@ -104,6 +108,7 @@ describe('ParadexClient', () => {
 
       const config = configFactory();
       const client = await ParadexClient.createFromStarknetAccount({
+        serverDeriveAddress: false,
         config,
         account: snAccount,
         starknetProvider: snProvider,
@@ -157,7 +162,6 @@ describe('ParadexClient', () => {
           },
           account: snAccount,
           starknetProvider: snProvider,
-          serverDeriveAddress: true,
         });
 
         expect(client.getAddress()).toBe(serverAddress);
@@ -177,6 +181,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });
@@ -210,6 +215,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });
@@ -229,6 +235,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });
@@ -267,6 +274,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });
@@ -295,6 +303,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });
@@ -323,6 +332,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });
@@ -373,6 +383,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });
@@ -403,6 +414,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });
@@ -424,6 +436,7 @@ describe('ParadexClient', () => {
       const config = configFactory();
 
       const client = await ParadexClient.createFromEthSigner({
+        serverDeriveAddress: false,
         config,
         signer,
       });

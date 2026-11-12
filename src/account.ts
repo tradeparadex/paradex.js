@@ -22,15 +22,18 @@ export interface AccountCredentials {
  */
 export interface AddressDerivationOptions {
   /**
-   * When true, fetch the account address from the Paradex API
-   * (`GET /onboarding`) instead of computing it locally from the class hashes
-   * in the config. Use this for accounts created with the current account
-   * class, whose address local derivation does not reproduce.
-   * Defaults to false.
+   * Fetch the account address from the Paradex API (`GET /onboarding`).
+   * The API returns the stored address of an existing account of either
+   * account class, and the current-class address for a new one.
+   * Defaults to true.
+   *
+   * Pass false to compute the address locally from the class hashes in the
+   * config, with no request. That computes the legacy proxy-class address,
+   * which is only right for accounts created with the legacy class.
    */
   readonly serverDeriveAddress?: boolean;
   /**
-   * Paradex REST API base URL used when `serverDeriveAddress` is true.
+   * Paradex REST API base URL used to fetch the address.
    * Defaults to `config.paradexApiUrl`.
    */
   readonly apiUrl?: string;
@@ -330,15 +333,17 @@ interface ResolveAccountAddressParams extends AddressDerivationOptions {
 }
 
 /**
- * Resolves the account address either from the Paradex API or locally.
+ * Resolves the account address from the Paradex API, or locally when
+ * `serverDeriveAddress` is false. A failed request throws: it never falls
+ * back to the local address, which can belong to a different account.
  */
 async function resolveAccountAddress({
   config,
   publicKey,
-  serverDeriveAddress,
+  serverDeriveAddress = true,
   apiUrl,
 }: ResolveAccountAddressParams): Promise<Hex> {
-  if (serverDeriveAddress !== true) {
+  if (!serverDeriveAddress) {
     return generateAccountAddress({
       publicKey,
       accountClassHash: config.paraclearAccountHash,
@@ -349,13 +354,36 @@ async function resolveAccountAddress({
   const resolvedApiUrl = apiUrl ?? config.paradexApiUrl;
   if (resolvedApiUrl == null || resolvedApiUrl === '') {
     throw new Error(
-      'serverDeriveAddress requires an API URL: pass apiUrl or use a config from Config.fetch()',
+      'The account address comes from the Paradex API, which needs an API URL: ' +
+        'pass apiUrl or use a config from Config.fetch(). ' +
+        OPT_OUT_HINT,
     );
   }
 
-  const info = await fetchOnboarding({ apiUrl: resolvedApiUrl, publicKey });
+  let info: OnboardingInfo;
+  try {
+    info = await fetchOnboarding({ apiUrl: resolvedApiUrl, publicKey });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw Object.assign(
+      new Error(
+        `Could not fetch the account address from GET /onboarding: ${reason}. ` +
+          `Retry. ${OPT_OUT_HINT}`,
+      ),
+      { cause: error },
+    );
+  }
+  if (!/^0x[0-9a-fA-F]{1,64}$/.test(info.address)) {
+    throw new Error(
+      `GET /onboarding returned an invalid account address: ${info.address}`,
+    );
+  }
   return info.address;
 }
+
+const OPT_OUT_HINT =
+  'Pass serverDeriveAddress: false only if local derivation is right for ' +
+  'this account (only accounts created with the legacy proxy class).';
 
 interface GenerateAccountAddressParams {
   /** The hash of the account contract in hex format */
