@@ -514,6 +514,33 @@ describe('deriveFromEthSigner with determinismGuard', () => {
     });
   });
 
+  test('malformed walletAddress: invalid_options before any signature', async () => {
+    const fetchMock = mockOnboarding(found);
+    const signer: EthereumSigner = {
+      signTypedData: ethersSignerAdapter(wallet).signTypedData,
+      getCode: async () => EOA_CODE,
+    };
+    let signatures = 0;
+    const counting: EthereumSigner = {
+      ...signer,
+      signTypedData: async (typedData) => {
+        signatures += 1;
+        return await signer.signTypedData(typedData);
+      },
+    };
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: configFactory(),
+        signer: counting,
+        apiUrl,
+        determinismGuard: { walletAddress: '0x1234' },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_options' });
+    expect(signatures).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('walletAddress that differs from the signer: invalid_options', async () => {
     const fetchMock = mockOnboarding(found);
     const { signer, signatures } = countingSigner();
