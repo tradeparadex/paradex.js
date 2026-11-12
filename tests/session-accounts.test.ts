@@ -780,8 +780,19 @@ describe('revocation', () => {
     const del = h.transport.mock.calls
       .map(([req]) => req)
       .find((req) => req.method === 'DELETE');
-    expect(del?.url).toBe(DETAILS_URL);
+    expect(del?.url).toBe(`${DETAILS_URL}?cancel_orders=true`);
     expect(del?.headers.Authorization).toMatch(/^Bearer /);
+    expectCode(h.accounts.dropReason, 'GRANT_REVOKED');
+    expect(h.onDropped).toHaveBeenCalledTimes(1);
+  });
+
+  test('revoke({ cancelOrders: false }) signs out and leaves orders working', async () => {
+    const h = setup();
+    await h.accounts.revoke({ cancelOrders: false });
+    const del = h.transport.mock.calls
+      .map(([req]) => req)
+      .find((req) => req.method === 'DELETE');
+    expect(del?.url).toBe(DETAILS_URL);
     expectCode(h.accounts.dropReason, 'GRANT_REVOKED');
     expect(h.onDropped).toHaveBeenCalledTimes(1);
   });

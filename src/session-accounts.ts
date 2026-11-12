@@ -81,6 +81,14 @@ export interface SessionRequest {
   readonly body?: unknown;
 }
 
+export interface RevokeOptions {
+  /**
+   * Also cancel the session's resting orders, TWAPs and untriggered stops on
+   * every account. Defaults to `true`.
+   */
+  readonly cancelOrders?: boolean;
+}
+
 export type SubscriptionHandler = (data: unknown) => void;
 
 interface CachedToken {
@@ -303,11 +311,17 @@ export class SessionAccounts {
   /**
    * Revokes the grant on the server (every account under it) and drops
    * every account locally.
+   *
+   * With `cancelOrders` (the default) the server also cancels the session's
+   * resting orders, TWAPs and untriggered stops on every account. With
+   * `cancelOrders: false`, a session revoking its own grant is a sign-out:
+   * those orders keep working, and this key can no longer cancel them.
    */
-  async revoke(): Promise<void> {
+  async revoke({ cancelOrders = true }: RevokeOptions = {}): Promise<void> {
+    const query = cancelOrders ? '?cancel_orders=true' : '';
     await this.request(this.accounts[0] ?? '', {
       method: 'DELETE',
-      path: this.grantPath(),
+      path: `${this.grantPath()}${query}`,
     });
     this.drop(new SessionGrantError('GRANT_REVOKED', 'session revoked'));
   }
