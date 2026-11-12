@@ -81,6 +81,14 @@ export interface SessionRequest {
   readonly body?: unknown;
 }
 
+export interface RevokeOptions {
+  /**
+   * Also cancel the session's resting orders, TWAPs and untriggered stops on
+   * every account. Defaults to `true`.
+   */
+  readonly cancelOrders?: boolean;
+}
+
 export type SubscriptionHandler = (data: unknown) => void;
 
 interface CachedToken {
@@ -122,6 +130,18 @@ const SESSION_GONE_CODES: readonly string[] = [
  * `/auth` refusals that mean "this session key was not accepted". They
  * trigger a status check; only the grant's status ever drops a session.
  */
+/**
+ * The server no longer has the grant, as opposed to a 404 for an unrouted
+ * path, whose body names no `NOT_FOUND` error.
+ */
+function isGrantNotFound(error: unknown): boolean {
+  return (
+    error instanceof SessionApiError &&
+    error.status === 404 &&
+    error.code === 'NOT_FOUND'
+  );
+}
+
 function isAuthRefusal(error: SessionApiError): boolean {
   return (
     error.status === 401 ||
@@ -303,12 +323,34 @@ export class SessionAccounts {
   /**
    * Revokes the grant on the server (every account under it) and drops
    * every account locally.
+   *
+   * With `cancelOrders` (the default) the server also cancels the session's
+   * resting orders, TWAPs and untriggered stops on every account. Once the
+   * grant is revoked this key can no longer cancel anything, so a bot or
+   * builder session cancels by default. The Paradex app's own sign-out does
+   * the opposite, because orders placed through it are the owner's own
+   * trading.
+   *
+   * With `cancelOrders: false`, a grant without a builder signs out: its
+   * resting orders, TWAPs and stops keep working. A builder grant still has
+   * its TWAPs and untriggered stops cancelled, and keeps only its resting
+   * orders.
+   *
+   * A 404 `NOT_FOUND` means the server no longer has the grant, so it counts
+   * as revoked and drops the session too. Any other refusal (a 403, a 404
+   * for an unrouted path, a 5xx) throws and leaves the session live, so the
+   * call can be retried.
    */
-  async revoke(): Promise<void> {
-    await this.request(this.accounts[0] ?? '', {
-      method: 'DELETE',
-      path: this.grantPath(),
-    });
+  async revoke({ cancelOrders = true }: RevokeOptions = {}): Promise<void> {
+    const query = cancelOrders ? '?cancel_orders=true' : '';
+    try {
+      await this.request(this.accounts[0] ?? '', {
+        method: 'DELETE',
+        path: `${this.grantPath()}${query}`,
+      });
+    } catch (error) {
+      if (!isGrantNotFound(error)) throw error;
+    }
     this.drop(new SessionGrantError('GRANT_REVOKED', 'session revoked'));
   }
 

@@ -137,6 +137,7 @@ export type {
 export type {
   GrantState,
   GrantStatus,
+  RevokeOptions,
   SessionAccountsParams,
   SessionRequest,
   SubscriptionHandler,
