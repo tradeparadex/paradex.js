@@ -326,7 +326,6 @@ Grants are checked before signing. These throw a `SessionGrantError` with a `cod
 - lifetimes past the server caps, less a 5-minute allowance for the client's clock running ahead (`clockSkewSeconds`; pass 0 when `issuedAt` comes from the server's clock);
 - a limit that is empty, or set while the server doesn't enforce it (`LIMIT_INVALID`);
 - builder grants asking for `trade:block` or `account:settings`;
-- builder grants without a numeric `maxLoss`. Builder grants need a loss cap, so they're refused until the server enforces `maxLoss`.
 - labels over 64 characters or outside printable ASCII;
 - passkey ceilings with scopes the server refuses: a first-party passkey's ceiling may carry `trade`, `trade:rfq` and `account:settings`, a builder passkey's only `trade`. Ceilings with subaccounts are refused until the server enables them; pass `passkeySubaccounts: true` once it does.
 

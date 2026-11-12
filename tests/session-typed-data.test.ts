@@ -480,18 +480,16 @@ describe('refusals', () => {
     },
   );
 
-  test('builder grants must state every amount; empty markets mean the default', () => {
+  test('builder grants may state any amount as "none"', () => {
     const builder = { account: BUILDER, maxFeeRate: '0.0005' };
     expect(() =>
       createSessionGrant(params({ builder, limits: FULL_LIMITS })),
     ).not.toThrow();
-    expectCode(
-      () =>
-        createSessionGrant(
-          params({ builder, limits: { ...FULL_LIMITS, maxLoss: 'none' } }),
-        ),
-      'BUILDER_LIMITS_REQUIRED',
-    );
+    expect(() =>
+      createSessionGrant(
+        params({ builder, limits: { ...FULL_LIMITS, maxLoss: 'none' } }),
+      ),
+    ).not.toThrow();
     expect(() =>
       createSessionGrant(
         params({ builder, limits: { ...FULL_LIMITS, maxLeverage: 'none' } }),
@@ -1541,17 +1539,23 @@ describe('limits the server does not enforce', () => {
     );
   });
 
-  test('builder grants are refused until maxLoss is enforced', () => {
+  test('builder grants follow the normal limit rules', () => {
     const builder = { account: BUILDER, maxFeeRate: '0.0005' };
-    for (const maxLoss of ['none', '5000']) {
-      expectCode(
-        () =>
-          createSessionGrant(
-            launch({ builder, limits: { ...UNCAPPED_LIMITS, maxLoss } }),
-          ),
-        'BUILDER_LIMITS_REQUIRED',
-      );
-    }
+    const grant = createSessionGrant(
+      launch({ builder, limits: UNCAPPED_LIMITS }),
+    );
+    expect(grant.builder.account).toBe(BUILDER);
+    expect(grant.limits).toEqual(UNCAPPED_LIMITS);
+    expectCode(
+      () =>
+        createSessionGrant(
+          launch({
+            builder,
+            limits: { ...UNCAPPED_LIMITS, maxLoss: '5000' },
+          }),
+        ),
+      'LIMIT_INVALID',
+    );
     expect(() =>
       createSessionGrant(
         launch({
@@ -1563,7 +1567,7 @@ describe('limits the server does not enforce', () => {
     ).not.toThrow();
   });
 
-  test('builder passkeys are refused; first-party ones may be uncapped', () => {
+  test('builder and first-party passkeys may be uncapped', () => {
     const firstParty = {
       ...passkeyGrant(),
       ceiling: { ...passkeyGrant().ceiling, limits: UNCAPPED_LIMITS },
@@ -1571,13 +1575,13 @@ describe('limits the server does not enforce', () => {
     expect(() => {
       validatePasskeyGrant(firstParty);
     }).not.toThrow();
-    expectCode(() => {
+    expect(() => {
       validatePasskeyGrant({
         ...firstParty,
         builderAccount: BUILDER,
         ceiling: { ...firstParty.ceiling, includeFutureSubaccounts: false },
       });
-    }, 'BUILDER_LIMITS_REQUIRED');
+    }).not.toThrow();
   });
 
   test('a mint skips unlisted limits against its ceiling', () => {
@@ -1611,9 +1615,7 @@ describe('limits the server does not enforce', () => {
 });
 
 describe('builder passkeys and caps while limits are unenforced', () => {
-  // The server checks maxLoss when a builder passkey registers, not on its
-  // mints, so a mint stating only unenforced limits passes.
-  test('a mint under a builder passkey is checked like any other', () => {
+  test('a mint under a builder passkey follows the normal limit rules', () => {
     const grant = vectorOf((v) => v.name === 'passkey-grant-builder')
       .message as unknown as PasskeyGrant;
     const builderMint = vectorOf(
@@ -1624,6 +1626,9 @@ describe('builder passkeys and caps while limits are unenforced', () => {
     expect(() => {
       assertMintWithinCeiling(uncapped, grant, now);
     }).not.toThrow();
+    expectCode(() => {
+      assertMintWithinCeiling(builderMint, grant, now);
+    }, 'LIMIT_INVALID');
     expect(() => {
       assertMintWithinCeiling(builderMint, grant, now, ENFORCED);
     }).not.toThrow();
