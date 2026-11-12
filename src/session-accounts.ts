@@ -301,6 +301,9 @@ export class SessionAccounts {
         signature_timestamp: timestamp,
         ...(order.clientId != null ? { client_id: order.clientId } : {}),
         ...(order.reduceOnly === true ? { flags: ['REDUCE_ONLY'] } : {}),
+        ...(order.builder != null
+          ? { builder: order.builder, builder_fee_rate: order.builderFeeRate }
+          : {}),
       },
     });
   }

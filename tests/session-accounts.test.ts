@@ -493,6 +493,52 @@ describe('REST routing', () => {
     expect(verifyStark(key.publicKey, mainHash, signature)).toBe(false);
   });
 
+  test('places builder orders signed as BuilderOrder', async () => {
+    const { accounts, transport } = setup();
+    const order = {
+      market: 'BTC-USD-PERP',
+      side: 'BUY',
+      type: 'LIMIT',
+      size: '0.5',
+      price: '65000.25',
+      builder: '0x5b0b',
+      builderFeeRate: '0.0005',
+    } as const;
+    await accounts.placeOrder(SUB, order);
+    const req = transport.mock.calls
+      .map(([r]) => r)
+      .find((r) => r.url.endsWith('/v1/orders'));
+    const body = JSON.parse(req?.body ?? '{}') as Record<string, unknown>;
+    expect(body).toMatchObject({
+      builder: '0x5b0b',
+      builder_fee_rate: '0.0005',
+    });
+    const typedData = buildOrderTypedData(PARADEX_CHAIN, order, T0 * 1000);
+    expect(typedData.primaryType).toBe('BuilderOrder');
+    const hash = Starknet.typedData.getMessageHash(typedData, SUB);
+    const signature = JSON.parse(String(body.signature)) as string[];
+    expect(verifyStark(key.publicKey, hash, signature)).toBe(true);
+  });
+
+  test('refuses a builder without a fee rate before sending', async () => {
+    const { accounts, transport } = setup();
+    const before = transport.mock.calls.length;
+    await expect(
+      accounts.placeOrder(SUB, {
+        market: 'BTC-USD-PERP',
+        side: 'BUY',
+        type: 'MARKET',
+        size: '1',
+        builder: '0x5b0b',
+      }),
+    ).rejects.toThrow(/together/);
+    expect(
+      transport.mock.calls
+        .slice(before)
+        .some(([r]) => r.url.endsWith('/v1/orders')),
+    ).toBe(false);
+  });
+
   test('market orders sign price 0; cancel routes by account', async () => {
     const { accounts, transport } = setup();
     await accounts.placeOrder(MAIN, {
