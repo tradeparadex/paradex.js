@@ -23,7 +23,8 @@ export interface EthCodeProvider {
  */
 export interface DeterminismGuardOptions {
   /**
-   * The wallet address that signs. Defaults to `signer.getAddress()`.
+   * The wallet address that signs. Defaults to `signer.getAddress()`; when
+   * both are known they must match.
    */
   readonly walletAddress?: string;
   /**
@@ -47,9 +48,10 @@ export interface DeterminismGuardOptions {
   /**
    * Called with the outcome once the key is accepted. A caller that keeps
    * its own record of wallets that passed the two-signature test can store
-   * it from here; the SDK keeps no state between calls.
+   * it from here; the SDK keeps no state between calls. A returned promise
+   * is awaited, and a rejection fails the derivation.
    */
-  readonly onResult?: (result: DeterminismGuardResult) => void;
+  readonly onResult?: (result: DeterminismGuardResult) => unknown;
 }
 
 /**
@@ -79,6 +81,8 @@ export type DeterminismGuardErrorCode =
   | 'contract_wallet'
   /** The wallet already owns an account under a different key. */
   | 'key_mismatch'
+  /** The wallet owns an EVM-owned account, which uses sessions, not a key. */
+  | 'evm_owned_account'
   /** The wallet returned different signatures for the same message. */
   | 'non_deterministic'
   /** A Paradex API lookup failed; nothing was derived. */

@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 
 import * as Account from '../src/account';
+import { ParadexClient } from '../src/client';
 import {
   DeterminismGuardError,
   hasContractCode,
@@ -52,11 +53,21 @@ const walletFree = ok({
   account_signer_type: 'eip191',
 });
 
-/** Routes `GET /onboarding` by lookup type and records each request. */
-function mockOnboarding(byKey: Reply, byWallet: Reply = walletFree): jest.Mock {
+/**
+ * Routes `GET /onboarding` by lookup type and records each request. `byKey`
+ * may answer each public-key form differently.
+ */
+function mockOnboarding(
+  byKey: Reply | ((publicKey: string) => Reply),
+  byWallet: Reply = walletFree,
+): jest.Mock {
   const mock = jest.fn(async (url: string) => {
     const params = new URL(url).searchParams;
-    const reply = params.has('eth_address') ? byWallet : byKey;
+    const reply = params.has('eth_address')
+      ? byWallet
+      : typeof byKey === 'function'
+        ? byKey(params.get('public_key') ?? '')
+        : byKey;
     return {
       ok: reply.status >= 200 && reply.status < 300,
       status: reply.status,
@@ -143,7 +154,7 @@ describe('deriveFromEthSigner with determinismGuard', () => {
   test('wallet owns an account under another key: key_mismatch, no second signature', async () => {
     mockOnboarding(
       notFound,
-      ok({ address: '0xe0a', exists: true, account_signer_type: 'eip191' }),
+      ok({ address: '0xe0a', exists: true, account_signer_type: 'starknet' }),
     );
     const { signer, signatures } = countingSigner();
     const onResult = jest.fn();
@@ -359,6 +370,179 @@ describe('deriveFromEthSigner with determinismGuard', () => {
       }),
     ).rejects.toMatchObject({ code: 'invalid_options' });
     expect(signatures()).toBe(0);
+  });
+
+  test('an account stored under the zero-padded key matches', async () => {
+    const publicKey = await derivedPublicKey();
+    const padded = `0x${publicKey.slice(2).padStart(64, '0')}`;
+    expect(padded).not.toBe(publicKey);
+    const fetchMock = mockOnboarding((key) =>
+      key === padded ? found : notFound,
+    );
+    const { signer, signatures } = countingSigner();
+
+    const credentials = await Account.deriveFromEthSigner({
+      config: configFactory(),
+      signer,
+      apiUrl,
+      determinismGuard: true,
+    });
+
+    expect(credentials.address).toBe(accountAddress);
+    expect(signatures()).toBe(1);
+    expect(lookups(fetchMock).map((q) => q.public_key)).toEqual([
+      publicKey,
+      padded,
+    ]);
+  });
+
+  test('a failed padded-key lookup fails closed', async () => {
+    const publicKey = await derivedPublicKey();
+    mockOnboarding((key) =>
+      key === publicKey ? notFound : { status: 500, body: {} },
+    );
+    const { signer, signatures } = countingSigner();
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: configFactory(),
+        signer,
+        apiUrl,
+        determinismGuard: true,
+      }),
+    ).rejects.toMatchObject({ code: 'lookup_failed' });
+    expect(signatures()).toBe(1);
+  });
+
+  test.each([
+    [
+      'a network error',
+      async () => await Promise.reject(new TypeError('fetch failed')),
+    ],
+    [
+      'a non-JSON body',
+      async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () =>
+          await Promise.reject(new SyntaxError('Unexpected token <')),
+      }),
+    ],
+  ])('%s is a lookup_failed guard error', async (_name, impl) => {
+    global.fetch = jest.fn(impl) as unknown as typeof fetch;
+    const { signer } = countingSigner();
+
+    const error = await Account.deriveFromEthSigner({
+      config: configFactory(),
+      signer,
+      apiUrl,
+      determinismGuard: true,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(DeterminismGuardError);
+    expect((error as DeterminismGuardError).code).toBe('lookup_failed');
+  });
+
+  test('wallet owns an EVM-owned account: evm_owned_account', async () => {
+    mockOnboarding(
+      notFound,
+      ok({ address: '0xe0a', exists: true, account_signer_type: 'eip191' }),
+    );
+    const { signer, signatures } = countingSigner();
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: configFactory(),
+        signer,
+        apiUrl,
+        determinismGuard: true,
+      }),
+    ).rejects.toMatchObject({ code: 'evm_owned_account' });
+    expect(signatures()).toBe(1);
+  });
+
+  test('an async onResult is awaited, and its rejection fails the derivation', async () => {
+    mockOnboarding(found);
+    const { signer } = countingSigner();
+    let stored = false;
+
+    await Account.deriveFromEthSigner({
+      config: configFactory(),
+      signer,
+      apiUrl,
+      determinismGuard: {
+        onResult: async () => {
+          await Promise.resolve();
+          stored = true;
+        },
+      },
+    });
+    expect(stored).toBe(true);
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: configFactory(),
+        signer,
+        apiUrl,
+        determinismGuard: {
+          onResult: async () => {
+            throw new Error('storage full');
+          },
+        },
+      }),
+    ).rejects.toThrow('storage full');
+  });
+
+  test('walletAddress is used for the wallet lookup', async () => {
+    const fetchMock = mockOnboarding(notFound);
+    const signer: EthereumSigner = {
+      signTypedData: ethersSignerAdapter(wallet).signTypedData,
+      getCode: async () => EOA_CODE,
+    };
+
+    await Account.deriveFromEthSigner({
+      config: configFactory(),
+      signer,
+      apiUrl,
+      determinismGuard: { walletAddress: wallet.address },
+    });
+
+    expect(lookups(fetchMock).at(-1)).toEqual({
+      account_signer_type: 'eip191',
+      eth_address: wallet.address,
+    });
+  });
+
+  test('walletAddress that differs from the signer: invalid_options', async () => {
+    const fetchMock = mockOnboarding(found);
+    const { signer, signatures } = countingSigner();
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: configFactory(),
+        signer,
+        apiUrl,
+        determinismGuard: { walletAddress: `0x${'11'.repeat(20)}` },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_options' });
+    expect(signatures()).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('ParadexClient.createFromEthSigner passes the guard through', async () => {
+    mockOnboarding(found);
+    const { signer, signatures } = countingSigner();
+
+    const client = await ParadexClient.createFromEthSigner({
+      config: configFactory(),
+      signer,
+      apiUrl,
+      determinismGuard: true,
+    });
+
+    expect(client.getAddress()).toBe(accountAddress);
+    expect(signatures()).toBe(1);
   });
 
   test('fromEthSigner passes the guard through', async () => {

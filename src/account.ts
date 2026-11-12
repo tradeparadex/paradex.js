@@ -176,13 +176,13 @@ async function deriveFromEthSignerGuarded({
 
   let byKey: OnboardingInfo | undefined;
   for (const candidate of publicKeyForms(publicKey)) {
-    const result = await requestOnboarding({
+    const result = await guardedLookup({
       apiUrl: resolvedApiUrl,
       publicKey: candidate,
     });
     if (!result.ok) throw lookupFailed(result);
     if (result.info.exists) {
-      return accept({
+      return await accept({
         kind: 'existing',
         signatures: 1,
         walletAddress,
@@ -201,10 +201,21 @@ async function deriveFromEthSignerGuarded({
     );
   }
 
-  const byWallet = await requestOnboarding({
+  const byWallet = await guardedLookup({
     apiUrl: resolvedApiUrl,
     ethAddress: walletAddressAsGiven,
   });
+  if (
+    byWallet.ok &&
+    byWallet.info.exists &&
+    byWallet.info.accountSignerType === 'eip191'
+  ) {
+    throw new DeterminismGuardError(
+      'evm_owned_account',
+      'This wallet owns an EVM-owned Paradex account, which is used through ' +
+        'a session (SessionConnector), not a derived key. Do not onboard a new account.',
+    );
+  }
   // 400: the wallet is already linked to an account of another signer type,
   // which for a wallet deriving a Stark key is its Stark account.
   if (
@@ -226,7 +237,7 @@ async function deriveFromEthSignerGuarded({
       NON_DETERMINISTIC_MESSAGE,
     );
   }
-  return accept({
+  return await accept({
     kind: 'new',
     signatures: 2,
     walletAddress,
@@ -241,9 +252,19 @@ async function resolveWalletAddress(
   signer: ethereumSigner.EthereumSigner,
   options: DeterminismGuardOptions,
 ): Promise<string> {
-  const address =
-    options.walletAddress ??
-    (signer.getAddress != null ? await signer.getAddress() : undefined);
+  const signerAddress =
+    signer.getAddress != null ? await signer.getAddress() : undefined;
+  if (
+    options.walletAddress != null &&
+    signerAddress != null &&
+    options.walletAddress.toLowerCase() !== signerAddress.toLowerCase()
+  ) {
+    throw new DeterminismGuardError(
+      'invalid_options',
+      'walletAddress does not match the address the signer reports',
+    );
+  }
+  const address = options.walletAddress ?? signerAddress;
   if (address == null) {
     throw new DeterminismGuardError(
       'invalid_options',
@@ -269,15 +290,34 @@ function lookupFailed(
   );
 }
 
-function accept({
+/**
+ * `requestOnboarding` with network and response-parsing errors turned into
+ * `lookup_failed`, so every failed lookup surfaces as a guard error.
+ */
+async function guardedLookup(
+  params: FetchOnboardingParams,
+): Promise<OnboardingResult> {
+  try {
+    return await requestOnboarding(params);
+  } catch (error) {
+    throw new DeterminismGuardError(
+      'lookup_failed',
+      `Paradex onboarding lookup failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+async function accept({
   privateKey,
   options,
   ...result
 }: DeterminismGuardResult & {
   readonly privateKey: string;
   readonly options: DeterminismGuardOptions;
-}): AccountCredentials {
-  options.onResult?.(result);
+}): Promise<AccountCredentials> {
+  await options.onResult?.(result);
   return { address: result.address, privateKey: `0x${privateKey}` };
 }
 
