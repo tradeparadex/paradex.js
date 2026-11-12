@@ -502,7 +502,7 @@ describe('REST routing', () => {
       size: '0.5',
       price: '65000.25',
       builder: '0x5b0b',
-      builderFeeRate: '0.0005',
+      builderFeeRate: '0.000500000',
     } as const;
     await accounts.placeOrder(SUB, order);
     const req = transport.mock.calls
