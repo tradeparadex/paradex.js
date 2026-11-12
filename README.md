@@ -104,6 +104,62 @@ const info = await Paradex.Onboarding.fetch({
 console.log(info.address, info.exists);
 ```
 
+### Determinism guard (experimental)
+
+A wallet derives its Paradex key from a signature, so a wallet that does not sign deterministically derives a different key each time. By default `fromEthSigner` asks for the signature twice and compares them. Set `determinismGuard` to check the derived key against the wallet's account instead:
+
+```typescript
+const client = await Paradex.Client.fromEthSigner({
+  config,
+  signer,
+  determinismGuard: true,
+});
+```
+
+With the guard on, the SDK:
+
+1. Refuses a wallet that has contract code (a smart contract wallet), before asking for any signature. An EIP-7702 delegated EOA is allowed. A code lookup that fails or times out counts as no code.
+2. Asks for one signature and looks the derived public key up with `GET /onboarding`. If an account holds it, the key is accepted with that one signature.
+3. Otherwise, looks the wallet up. If the wallet already has an account, its key differs from the one just derived: the SDK throws a `DeterminismGuardError` with code `key_mismatch` (or `evm_owned_account` when the wallet's account is an EVM-owned one, which is used through `SessionConnector`). Do not onboard a new account in either case.
+4. Otherwise the account is new: it asks for a second signature and throws `non_deterministic` if the two differ.
+
+Any failed lookup throws `lookup_failed`, so the guard never returns a key it could not check. The account address always comes from the Paradex API, as with `serverDeriveAddress: true`.
+
+The guard needs the wallet address and a provider to read its code. `Paradex.Signer.fromEthers()` provides both when the ethers signer has a provider. Otherwise pass them, along with providers for any other chain the wallet might be a contract on:
+
+```typescript
+const client = await Paradex.Client.fromEthSigner({
+  config,
+  signer,
+  determinismGuard: {
+    walletAddress: '0x...',
+    codeProviders: [mainnetProvider, arbitrumProvider, baseProvider],
+    // Called once the key is accepted, e.g. to record that a new wallet
+    // passed the two-signature test. The SDK keeps no state between calls.
+    onResult: ({ kind, signatures }) => console.log(kind, signatures),
+  },
+});
+```
+
+For a local private-key wallet with no provider, pass `contractCodeCheck: false`.
+
+```typescript
+try {
+  await Paradex.Client.fromEthSigner({
+    config,
+    signer,
+    determinismGuard: true,
+  });
+} catch (error) {
+  if (error instanceof Paradex.DeterminismGuardError) {
+    // 'contract_wallet' | 'key_mismatch' | 'evm_owned_account'
+    // | 'non_deterministic'
+    // | 'lookup_failed' | 'invalid_options'
+    console.error(error.code, error.message);
+  }
+}
+```
+
 ### Configuration
 
 Fetch environment-specific configuration:

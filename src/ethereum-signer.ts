@@ -19,12 +19,34 @@ export interface TypedData {
 
 export interface EthereumSigner {
   readonly signTypedData: (typedData: TypedData) => Promise<string>;
+  /**
+   * The signing wallet's address. Optional; the determinism guard needs it
+   * unless it is passed as `walletAddress`.
+   */
+  readonly getAddress?: () => Promise<string>;
+  /**
+   * Reads an address's bytecode on the signer's chain. Optional; the
+   * determinism guard uses it to refuse contract wallets when no
+   * `codeProviders` are passed.
+   */
+  readonly getCode?: (address: string) => Promise<string>;
 }
 
 export function ethersSignerAdapter(
   ethersSigner: ethers.Signer,
 ): EthereumSigner {
+  const provider = ethersSigner.provider;
   return {
+    async getAddress() {
+      return await ethersSigner.getAddress();
+    },
+    ...(provider != null
+      ? {
+          async getCode(address: string) {
+            return await provider.getCode(address);
+          },
+        }
+      : {}),
     async signTypedData(typedData) {
       return await ethersSigner.signTypedData(
         typedData.domain,

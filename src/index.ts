@@ -76,6 +76,7 @@ export {
   UNCAPPED_LIMITS,
 } from './session-typed-data.js';
 export { SessionConnector } from './session-connector.js';
+export { DeterminismGuardError, isContractCode } from './determinism-guard.js';
 export { SessionAccounts } from './session-accounts.js';
 export { SessionApiError } from './session-transport.js';
 export { SessionKey } from './session-key.js';
@@ -98,6 +99,12 @@ export type {
 } from './client.js';
 export type { ParadexConfig } from './config.js';
 export type { EthereumSigner } from './ethereum-signer.js';
+export type {
+  DeterminismGuardErrorCode,
+  DeterminismGuardOptions,
+  DeterminismGuardResult,
+  EthCodeProvider,
+} from './determinism-guard.js';
 export type { Hex } from './types.js';
 export type { Eip712TypedData, Eip712Domain } from './eip712.js';
 export type {
