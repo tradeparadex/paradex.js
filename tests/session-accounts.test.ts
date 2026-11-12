@@ -786,6 +786,36 @@ describe('revocation', () => {
     expect(h.onDropped).toHaveBeenCalledTimes(1);
   });
 
+  test('revoke() of a grant the server no longer has (404 NOT_FOUND) drops', async () => {
+    const h = setup({
+      route: (req) =>
+        req.method === 'DELETE'
+          ? { status: 404, body: { error: 'NOT_FOUND' } }
+          : undefined,
+    });
+    await h.accounts.revoke();
+    expectCode(h.accounts.dropReason, 'GRANT_REVOKED');
+    expect(h.onDropped).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ['a 403', { status: 403, body: { error: 'FORBIDDEN' } }],
+    ['an unrouted 404', { status: 404, body: 'page not found' }],
+    ['a 5xx', { status: 503, body: {} }],
+  ])(
+    'revoke() refused with %s throws and keeps the session',
+    async (_, resp) => {
+      const h = setup({
+        route: (req) => (req.method === 'DELETE' ? resp : undefined),
+      });
+      const error = await caught(h.accounts.revoke());
+      expect(error).toBeInstanceOf(SessionApiError);
+      expect((error as SessionApiError).status).toBe(resp.status);
+      expect(h.accounts.dropReason).toBeUndefined();
+      expect(h.onDropped).not.toHaveBeenCalled();
+    },
+  );
+
   test('revoke({ cancelOrders: false }) signs out and leaves orders working', async () => {
     const h = setup();
     await h.accounts.revoke({ cancelOrders: false });
