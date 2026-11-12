@@ -391,6 +391,18 @@ await accounts.placeOrder('0x...', {
   size: '0.01',
   price: '60000',
 });
+// An order attributed to a builder the account approved (for example in a
+// grant's `builder`) pays it builderFeeRate of each fill's notional in USDC.
+// It is signed as BuilderOrder rather than Order.
+await accounts.placeOrder('0x...', {
+  market: 'BTC-USD-PERP',
+  side: 'BUY',
+  type: 'LIMIT',
+  size: '0.01',
+  price: '60000',
+  builder: '0x...',
+  builderFeeRate: '0.0005', // 5 bps
+});
 const unsubscribe = await accounts.subscribe('0x...', 'orders.ALL', (data) =>
   console.log(data),
 );

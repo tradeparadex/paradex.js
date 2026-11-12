@@ -83,6 +83,18 @@ export interface SessionOrder {
   readonly instruction?: 'GTC' | 'IOC' | 'POST_ONLY' | 'RPI';
   readonly clientId?: string;
   readonly reduceOnly?: boolean;
+  /**
+   * Builder the order is attributed to: its Paradex account address. The
+   * builder charges `builderFeeRate` in USDC on every fill. Set it with
+   * `builderFeeRate`, or neither. The account must hold a live approval of
+   * this builder at a rate at least as high, such as a grant's `builder`.
+   */
+  readonly builder?: string;
+  /**
+   * Builder fee as a fraction of each fill's notional, a decimal string with
+   * at most 8 decimal places: `"0.0005"` is 5 bps.
+   */
+  readonly builderFeeRate?: string;
 }
 
 /** Decimal string → 8-decimal quantum integer string, as the chain signs it. */
@@ -98,6 +110,42 @@ export function toChainQuantums(value: string, field: string): string {
   return scaled.toFixed(0);
 }
 
+const ORDER_TYPES = [
+  { name: 'timestamp', type: 'felt' },
+  { name: 'market', type: 'felt' },
+  { name: 'side', type: 'felt' },
+  { name: 'orderType', type: 'felt' },
+  { name: 'size', type: 'felt' },
+  { name: 'price', type: 'felt' },
+];
+
+/**
+ * The order's builder and its fee rate at 8 decimals (`"0.0005"` →
+ * `"50000"`), or `undefined` for an order naming none.
+ */
+export function orderBuilder(
+  order: SessionOrder,
+): { builder: string; builderFeeRate: string } | undefined {
+  const { builder, builderFeeRate } = order;
+  if (builder == null && builderFeeRate == null) return undefined;
+  if (builder == null || builderFeeRate == null) {
+    throw new Error('builder and builderFeeRate must be set together');
+  }
+  if (!/^0x[0-9a-fA-F]{1,64}$/.test(builder) || BigInt(builder) === 0n) {
+    throw new Error('builder must be a non-zero 0x-prefixed hex address');
+  }
+  const rate = toChainQuantums(builderFeeRate, 'builderFeeRate');
+  if (rate === '0') throw new Error('builderFeeRate must be above 0');
+  return { builder, builderFeeRate: rate };
+}
+
+/**
+ * The SNIP-12 (revision 0) typed data `order` is signed under. An order
+ * naming a builder signs as `BuilderOrder`: the `Order` fields, in order,
+ * then `builder` and `builderFeeRate` at 8 decimals. Its distinct type hash
+ * keeps either signature from being replayed as the other. An order without
+ * a builder keeps the `Order` hash.
+ */
 export function buildOrderTypedData(
   paradexChain: string,
   order: SessionOrder,
@@ -106,31 +154,38 @@ export function buildOrderTypedData(
   if (order.type === 'LIMIT' && order.price == null) {
     throw new Error('LIMIT orders need a price');
   }
+  const message: Record<string, string> = {
+    timestamp: String(signatureTimestampMs),
+    market: Starknet.shortString.encodeShortString(order.market),
+    side: order.side === 'BUY' ? '1' : '2',
+    orderType: Starknet.shortString.encodeShortString(order.type),
+    size: toChainQuantums(order.size, 'size'),
+    price:
+      order.type === 'MARKET'
+        ? '0'
+        : toChainQuantums(order.price ?? '', 'price'),
+  };
+  const builder = orderBuilder(order);
+  if (builder == null) {
+    return {
+      domain: paradexDomain(paradexChain),
+      primaryType: 'Order',
+      types: { StarkNetDomain: REQUEST_DOMAIN_TYPES, Order: ORDER_TYPES },
+      message,
+    };
+  }
   return {
     domain: paradexDomain(paradexChain),
-    primaryType: 'Order',
+    primaryType: 'BuilderOrder',
     types: {
       StarkNetDomain: REQUEST_DOMAIN_TYPES,
-      Order: [
-        { name: 'timestamp', type: 'felt' },
-        { name: 'market', type: 'felt' },
-        { name: 'side', type: 'felt' },
-        { name: 'orderType', type: 'felt' },
-        { name: 'size', type: 'felt' },
-        { name: 'price', type: 'felt' },
+      BuilderOrder: [
+        ...ORDER_TYPES,
+        { name: 'builder', type: 'felt' },
+        { name: 'builderFeeRate', type: 'felt' },
       ],
     },
-    message: {
-      timestamp: String(signatureTimestampMs),
-      market: Starknet.shortString.encodeShortString(order.market),
-      side: order.side === 'BUY' ? '1' : '2',
-      orderType: Starknet.shortString.encodeShortString(order.type),
-      size: toChainQuantums(order.size, 'size'),
-      price:
-        order.type === 'MARKET'
-          ? '0'
-          : toChainQuantums(order.price ?? '', 'price'),
-    },
+    message: { ...message, ...builder },
   };
 }
 
