@@ -313,9 +313,16 @@ export class SessionAccounts {
    * every account locally.
    *
    * With `cancelOrders` (the default) the server also cancels the session's
-   * resting orders, TWAPs and untriggered stops on every account. With
-   * `cancelOrders: false`, a session revoking its own grant is a sign-out:
-   * those orders keep working, and this key can no longer cancel them.
+   * resting orders, TWAPs and untriggered stops on every account. Once the
+   * grant is revoked this key can no longer cancel anything, so a bot or
+   * builder session cancels by default. The Paradex app's own sign-out does
+   * the opposite, because orders placed through it are the owner's own
+   * trading.
+   *
+   * With `cancelOrders: false`, a grant without a builder signs out: its
+   * resting orders, TWAPs and stops keep working. A builder grant still has
+   * its TWAPs and untriggered stops cancelled, and keeps only its resting
+   * orders.
    */
   async revoke({ cancelOrders = true }: RevokeOptions = {}): Promise<void> {
     const query = cancelOrders ? '?cancel_orders=true' : '';
