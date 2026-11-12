@@ -92,6 +92,7 @@ export type SessionGrantErrorCode =
   | 'UNKNOWN_SCOPE'
   | 'RESERVED_SCOPE'
   | 'TTL_EXCEEDED'
+  /** @deprecated No longer thrown: builder grants follow the normal limit rules. */
   | 'BUILDER_LIMITS_REQUIRED'
   | 'BUILDER_REQUIRES_EIP712'
   | 'GRANT_EXPIRED'
@@ -626,12 +627,13 @@ function isNoCap(value: string): boolean {
  * non-empty list, or `["*"]` alone. A limit the server does not enforce
  * must be `"none"` (`markets`: `["*"]`).
  *
- * @param builderGrant builder grants must cap `maxLoss` with a number, so
- * they are refused while the server does not enforce `maxLoss`.
+ * Builder grants and builder passkeys follow the same rules as any other grant.
+ *
+ * @param _builderGrant ignored; kept so existing callers still compile.
  */
 export function validateLimits(
   limits: Limits,
-  builderGrant: boolean,
+  _builderGrant: boolean,
   field = 'limits',
   options: LimitOptions = {},
 ): void {
@@ -639,12 +641,6 @@ export function validateLimits(
   const enforced = options.enforcedLimits ?? DEFAULT_ENFORCED_LIMITS;
   if (limits == null || typeof limits !== 'object') {
     throw invalid(field, 'is required');
-  }
-  if (builderGrant && !enforced.includes('maxLoss')) {
-    throw new SessionGrantError(
-      'BUILDER_LIMITS_REQUIRED',
-      `${field}.maxLoss: builder grants need a loss cap, which the server does not enforce yet`,
-    );
   }
   for (const key of LIMIT_AMOUNTS) {
     const value: unknown = limits[key];
@@ -656,14 +652,7 @@ export function validateLimits(
     }
     if (typeof value !== 'string')
       throw invalid(`${field}.${key}`, 'must be a string');
-    if (isNoCap(value)) {
-      if (key === 'maxLoss' && builderGrant) {
-        throw new SessionGrantError(
-          'BUILDER_LIMITS_REQUIRED',
-          `${field}.maxLoss: builder grants must cap losses with a number`,
-        );
-      }
-    } else {
+    if (!isNoCap(value)) {
       requireDecimal(`${field}.${key}`, value, false);
       if (new BigNumber(value).isZero()) {
         throw invalid(`${field}.${key}`, 'must be positive');
@@ -1000,8 +989,7 @@ function exceeds(message: string): SessionGrantError {
  * numeric ceiling (anything goes under a `"none"` ceiling), and markets must
  * be within the ceiling's unless it allows `["*"]`. Unenforced limits are
  * `"none"` on the mint and skipped, so passkeys registered with numeric
- * limits keep working. Mints under a builder passkey are refused until the
- * server enforces `maxLoss`, as builder grants are.
+ * limits keep working. Mints under a builder passkey follow the same rules.
  *
  * @experimental
  */
@@ -1042,12 +1030,6 @@ export function assertMintWithinCeiling(
     }
   }
   const enforced = options.enforcedLimits ?? DEFAULT_ENFORCED_LIMITS;
-  if (grant.builderAccount !== NO_BUILDER && !enforced.includes('maxLoss')) {
-    throw new SessionGrantError(
-      'BUILDER_LIMITS_REQUIRED',
-      'limits.maxLoss: builder passkeys need a loss cap, which the server does not enforce yet',
-    );
-  }
   // Limits the server does not enforce are "none" on the mint and are not
   // compared, so passkeys registered with numbers keep working.
   for (const key of LIMIT_AMOUNTS) {
