@@ -7,6 +7,7 @@ import {
   type AddressDerivationOptions,
 } from './account.js';
 import type { ParadexConfig } from './config.js';
+import type { DeterminismGuardOptions } from './determinism-guard.js';
 import type { EthereumSigner } from './ethereum-signer.js';
 import { DefaultProvider } from './paraclear-provider.js';
 import * as Paraclear from './paraclear.js';
@@ -15,6 +16,12 @@ export interface CreateClientFromEthSignerParams
   extends AddressDerivationOptions {
   readonly config: ParadexConfig;
   readonly signer: EthereumSigner;
+  /**
+   * Check the derived key against the wallet's existing account, and refuse
+   * contract wallets. See `DeterminismGuardOptions`.
+   * @experimental
+   */
+  readonly determinismGuard?: boolean | DeterminismGuardOptions;
 }
 
 export interface CreateClientFromStarknetAccountParams
@@ -74,6 +81,7 @@ export class ParadexClient {
     signer,
     serverDeriveAddress,
     apiUrl,
+    determinismGuard,
   }: CreateClientFromEthSignerParams): Promise<ParadexClient> {
     // Derive credentials internally (privateKey never exposed)
     const credentials = await deriveFromEthSigner({
@@ -81,6 +89,7 @@ export class ParadexClient {
       signer,
       serverDeriveAddress,
       apiUrl,
+      determinismGuard,
     });
 
     // Create authenticated provider

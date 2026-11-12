@@ -1,6 +1,13 @@
 import * as Starknet from 'starknet';
 
 import type { ParadexConfig } from './config.js';
+import {
+  DeterminismGuardError,
+  hasContractCode,
+  publicKeyForms,
+  type DeterminismGuardOptions,
+  type DeterminismGuardResult,
+} from './determinism-guard.js';
 import * as ethereumSigner from './ethereum-signer.js';
 import * as keyDerivation from './key-derivation.js';
 import * as starknetSigner from './starknet-signer.js';
@@ -39,6 +46,12 @@ export interface AddressDerivationOptions {
 interface DeriveFromEthSignerParams extends AddressDerivationOptions {
   readonly config: ParadexConfig;
   readonly signer: ethereumSigner.EthereumSigner;
+  /**
+   * Check the derived key against the wallet's existing account before
+   * trusting it. See `DeterminismGuardOptions`.
+   * @experimental
+   */
+  readonly determinismGuard?: boolean | DeterminismGuardOptions;
 }
 
 /**
@@ -52,7 +65,16 @@ export async function deriveFromEthSigner({
   signer,
   serverDeriveAddress,
   apiUrl,
+  determinismGuard,
 }: DeriveFromEthSignerParams): Promise<AccountCredentials> {
+  if (determinismGuard != null && determinismGuard !== false) {
+    return await deriveFromEthSignerGuarded({
+      config,
+      signer,
+      apiUrl,
+      options: determinismGuard === true ? {} : determinismGuard,
+    });
+  }
   const starkKeyTypedData = ethereumSigner.buildEthereumStarkKeyTypedData(
     config.ethereumChainId,
   );
@@ -76,10 +98,195 @@ export async function deriveFromEthSigner({
   };
 }
 
+const NON_DETERMINISTIC_MESSAGE =
+  'Wallet does not support deterministic signing. Please use different wallet.';
+
+interface DeriveFromEthSignerGuardedParams {
+  readonly config: ParadexConfig;
+  readonly signer: ethereumSigner.EthereumSigner;
+  readonly apiUrl?: string;
+  readonly options: DeterminismGuardOptions;
+}
+
+/**
+ * Derives the key from one signature and accepts it when an account already
+ * holds it. When none does, refuses a wallet that already owns an account
+ * (its key would differ from the stored one), and otherwise asks for a
+ * second signature to test determinism before a new account is created.
+ *
+ * Every lookup failure throws, so a guarded derivation never returns
+ * credentials for an account it could not check.
+ */
+async function deriveFromEthSignerGuarded({
+  config,
+  signer,
+  apiUrl,
+  options,
+}: DeriveFromEthSignerGuardedParams): Promise<AccountCredentials> {
+  const resolvedApiUrl = apiUrl ?? config.paradexApiUrl;
+  if (resolvedApiUrl == null || resolvedApiUrl === '') {
+    throw new DeterminismGuardError(
+      'invalid_options',
+      'determinismGuard requires an API URL: pass apiUrl or use a config from Config.fetch()',
+    );
+  }
+
+  const walletAddressAsGiven = await resolveWalletAddress(signer, options);
+  const walletAddress = walletAddressAsGiven.toLowerCase();
+
+  if (options.contractCodeCheck !== false) {
+    const signerGetCode = signer.getCode;
+    const providers =
+      options.codeProviders ??
+      (signerGetCode != null
+        ? [
+            {
+              getCode: async (a: string) => await signerGetCode.call(signer, a),
+            },
+          ]
+        : []);
+    if (providers.length === 0) {
+      throw new DeterminismGuardError(
+        'invalid_options',
+        'determinismGuard needs a provider to check the wallet for contract code: ' +
+          'pass codeProviders, use a signer with a provider, or set contractCodeCheck: false',
+      );
+    }
+    if (
+      await hasContractCode(
+        walletAddress,
+        providers,
+        options.contractCodeTimeoutMs,
+      )
+    ) {
+      throw new DeterminismGuardError(
+        'contract_wallet',
+        'This wallet is a smart contract wallet, which cannot derive a Paradex key. ' +
+          'Use a regular wallet (EOA).',
+      );
+    }
+  }
+
+  const starkKeyTypedData = ethereumSigner.buildEthereumStarkKeyTypedData(
+    config.ethereumChainId,
+  );
+  const seed = await signer.signTypedData(starkKeyTypedData);
+  const privateKey = keyDerivation.getPrivateKeyFromEthSignature(seed);
+  const publicKey: Hex = `0x${keyDerivation.privateToStarkKey(privateKey)}`;
+
+  let byKey: OnboardingInfo | undefined;
+  for (const candidate of publicKeyForms(publicKey)) {
+    const result = await requestOnboarding({
+      apiUrl: resolvedApiUrl,
+      publicKey: candidate,
+    });
+    if (!result.ok) throw lookupFailed(result);
+    if (result.info.exists) {
+      return accept({
+        kind: 'existing',
+        signatures: 1,
+        walletAddress,
+        address: result.info.address,
+        publicKey,
+        privateKey,
+        options,
+      });
+    }
+    byKey ??= result.info;
+  }
+  if (byKey == null) {
+    throw new DeterminismGuardError(
+      'lookup_failed',
+      'No public key to look up',
+    );
+  }
+
+  const byWallet = await requestOnboarding({
+    apiUrl: resolvedApiUrl,
+    ethAddress: walletAddressAsGiven,
+  });
+  // 400: the wallet is already linked to an account of another signer type,
+  // which for a wallet deriving a Stark key is its Stark account.
+  if (
+    (byWallet.ok && byWallet.info.exists) ||
+    (!byWallet.ok && byWallet.status === 400)
+  ) {
+    throw new DeterminismGuardError(
+      'key_mismatch',
+      'This wallet already has a Paradex account, but the key it derived does not match ' +
+        "the account's key. The wallet may not sign deterministically. Do not onboard a new account.",
+    );
+  }
+  if (!byWallet.ok) throw lookupFailed(byWallet);
+
+  const additionalSeed = await signer.signTypedData(starkKeyTypedData);
+  if (seed !== additionalSeed) {
+    throw new DeterminismGuardError(
+      'non_deterministic',
+      NON_DETERMINISTIC_MESSAGE,
+    );
+  }
+  return accept({
+    kind: 'new',
+    signatures: 2,
+    walletAddress,
+    address: byKey.address,
+    publicKey,
+    privateKey,
+    options,
+  });
+}
+
+async function resolveWalletAddress(
+  signer: ethereumSigner.EthereumSigner,
+  options: DeterminismGuardOptions,
+): Promise<string> {
+  const address =
+    options.walletAddress ??
+    (signer.getAddress != null ? await signer.getAddress() : undefined);
+  if (address == null) {
+    throw new DeterminismGuardError(
+      'invalid_options',
+      'determinismGuard needs the wallet address: pass walletAddress or use a signer with getAddress',
+    );
+  }
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+    throw new DeterminismGuardError(
+      'invalid_options',
+      'walletAddress must be a 0x-prefixed 20-byte address',
+    );
+  }
+  return address;
+}
+
+function lookupFailed(
+  result: Extract<OnboardingResult, { ok: false }>,
+): DeterminismGuardError {
+  return new DeterminismGuardError(
+    'lookup_failed',
+    `Paradex onboarding lookup failed: ${result.statusText} ${result.status}` +
+      (result.detail != null ? ` (${result.detail})` : ''),
+  );
+}
+
+function accept({
+  privateKey,
+  options,
+  ...result
+}: DeterminismGuardResult & {
+  readonly privateKey: string;
+  readonly options: DeterminismGuardOptions;
+}): AccountCredentials {
+  options.onResult?.(result);
+  return { address: result.address, privateKey: `0x${privateKey}` };
+}
+
 interface FromEthSignerParams extends AddressDerivationOptions {
   readonly provider: Starknet.ProviderOptions | Starknet.ProviderInterface;
   readonly config: ParadexConfig;
   readonly signer: ethereumSigner.EthereumSigner;
+  /** @experimental See `DeterminismGuardOptions`. */
+  readonly determinismGuard?: boolean | DeterminismGuardOptions;
 }
 
 /**
@@ -93,12 +300,14 @@ export async function fromEthSigner({
   signer,
   serverDeriveAddress,
   apiUrl,
+  determinismGuard,
 }: FromEthSignerParams): Promise<Account> {
   const credentials = await deriveFromEthSigner({
     config,
     signer,
     serverDeriveAddress,
     apiUrl,
+    determinismGuard,
   });
   return new Starknet.Account({
     provider,
@@ -260,6 +469,32 @@ type FetchOnboardingParams = {
 export async function fetchOnboarding(
   params: FetchOnboardingParams,
 ): Promise<OnboardingInfo> {
+  const result = await requestOnboarding(params);
+  if (!result.ok) {
+    throw new Error(
+      `Failed to fetch Paradex onboarding info: ${result.statusText} ${result.status}` +
+        (result.detail != null ? ` (${result.detail})` : ''),
+    );
+  }
+  return result.info;
+}
+
+type OnboardingResult =
+  | { readonly ok: true; readonly info: OnboardingInfo }
+  | {
+      readonly ok: false;
+      readonly status: number;
+      readonly statusText: string;
+      readonly detail?: string;
+    };
+
+/**
+ * `GET /onboarding`, returning the HTTP status of a failed lookup instead of
+ * throwing, so a caller can act on a specific status.
+ */
+async function requestOnboarding(
+  params: FetchOnboardingParams,
+): Promise<OnboardingResult> {
   const { apiUrl } = params;
   let query: URLSearchParams;
   if (params.ethAddress != null) {
@@ -282,10 +517,12 @@ export async function fetchOnboarding(
 
   if (!resp.ok) {
     const detail = await readErrorMessage(resp);
-    throw new Error(
-      `Failed to fetch Paradex onboarding info: ${resp.statusText} ${resp.status}` +
-        (detail != null ? ` (${detail})` : ''),
-    );
+    return {
+      ok: false,
+      status: resp.status,
+      statusText: resp.statusText,
+      ...(detail != null ? { detail } : {}),
+    };
   }
 
   const raw = (await resp.json()) as Partial<RawOnboardingInfo>;
@@ -294,19 +531,22 @@ export async function fetchOnboarding(
   }
 
   return {
-    address: raw.address,
-    exists: raw.exists === true,
-    accountSignerType: raw.account_signer_type ?? 'starknet',
-    ...(raw.derivation_info != null
-      ? {
-          derivationInfo: {
-            classHash: raw.derivation_info.class_hash,
-            ...(raw.derivation_info.proxy_class_hash != null
-              ? { proxyClassHash: raw.derivation_info.proxy_class_hash }
-              : {}),
-          },
-        }
-      : {}),
+    ok: true,
+    info: {
+      address: raw.address,
+      exists: raw.exists === true,
+      accountSignerType: raw.account_signer_type ?? 'starknet',
+      ...(raw.derivation_info != null
+        ? {
+            derivationInfo: {
+              classHash: raw.derivation_info.class_hash,
+              ...(raw.derivation_info.proxy_class_hash != null
+                ? { proxyClassHash: raw.derivation_info.proxy_class_hash }
+                : {}),
+            },
+          }
+        : {}),
+    },
   };
 }
 
