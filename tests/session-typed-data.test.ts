@@ -10,6 +10,8 @@ import {
   ALL_LIMITS,
   assertGrantActive,
   assertMintWithinCeiling,
+  buildBuilderApprovalEip712,
+  BUILDER_APPROVAL_TTL_MAX,
   buildPasskeyGrantEip712,
   buildPasskeyGrantSnip12,
   buildSessionGrantEip712,
@@ -18,6 +20,7 @@ import {
   buildSessionMintSnip12,
   canonicalFelt,
   CEILING_LIMITS,
+  createBuilderApproval,
   createSessionGrant,
   DEFAULT_ENFORCED_LIMITS,
   DEFAULT_LIMIT_CAPS,
@@ -36,9 +39,12 @@ import {
   sessionMintChallenge,
   summarizeGrant,
   UNCAPPED_LIMITS,
+  validateBuilderApproval,
   validatePasskeyGrant,
   validateSessionGrant,
   validateSessionMint,
+  type BuilderApproval,
+  type CreateBuilderApprovalParams,
   type CreateSessionGrantParams,
   type Limits,
   type PasskeyGrant,
@@ -54,7 +60,11 @@ const bytesToHex = (b: Uint8Array): string =>
 
 interface Vector {
   readonly name: string;
-  readonly primaryType: 'SessionGrant' | 'PasskeyGrant' | 'SessionMint';
+  readonly primaryType:
+    | 'SessionGrant'
+    | 'PasskeyGrant'
+    | 'SessionMint'
+    | 'BuilderApproval';
   readonly signer: 'eip191' | 'stark' | 'passkey';
   /** A `SessionMint` names no account. */
   readonly message: { readonly account?: string };
@@ -106,6 +116,11 @@ function buildEip712(v: Vector, chainId: number): Eip712TypedData {
         chainId,
         VECTOR_OPTIONS,
       );
+    case 'BuilderApproval':
+      return buildBuilderApprovalEip712(
+        v.message as unknown as BuilderApproval,
+        chainId,
+      );
   }
 }
 
@@ -124,6 +139,8 @@ function buildSnip12(v: Vector): Starknet.TypedData {
       return buildPasskeyGrantSnip12(v.message as PasskeyGrant, VECTOR_OPTIONS);
     case 'SessionMint':
       return buildSessionMintSnip12(v.message as SessionMint, VECTOR_OPTIONS);
+    case 'BuilderApproval':
+      throw new Error('builder approvals are EIP-712 only');
   }
 }
 
@@ -218,8 +235,9 @@ describe('golden vectors', () => {
     vectors
       .filter(
         (v) =>
-          v.primaryType !== 'SessionGrant' ||
-          (v.message as SessionGrant).builder.account === '0x0',
+          v.primaryType !== 'BuilderApproval' &&
+          (v.primaryType !== 'SessionGrant' ||
+            (v.message as SessionGrant).builder.account === '0x0'),
       )
       .map((v) => [v.name, v]),
   )('%s: SNIP-12 rev 1 types and message hash', (_name, v) => {
@@ -1872,5 +1890,99 @@ describe('signing with the SDK signer', () => {
     expect(ethers.recoverAddress(hashEip712(typedData), signature)).toBe(
       wallet.address,
     );
+  });
+});
+
+describe('builder approvals', () => {
+  const approvalParams = (
+    overrides: Partial<CreateBuilderApprovalParams> = {},
+  ): CreateBuilderApprovalParams => ({
+    paradexChain: 'PRIVATE_SN_PARACLEAR_MAINNET',
+    environment: 'mainnet',
+    account: ACCOUNT,
+    builder: { account: BUILDER, maxFeeRate: '0.0005' },
+    issuedAt: T0,
+    nonce: '0x1',
+    ...overrides,
+  });
+
+  test('canonical, with the server field order and a default expiry', () => {
+    const approval = createBuilderApproval(
+      approvalParams({
+        account: `0x00${ACCOUNT.slice(2)}`,
+        subaccounts: ['0x0abc'],
+      }),
+    );
+    expect(Object.keys(approval)).toEqual([
+      'paradexChain',
+      'environment',
+      'account',
+      'builder',
+      'subaccounts',
+      'nonce',
+      'issuedAt',
+    ]);
+    expect(approval.account).toBe(ACCOUNT);
+    expect(approval.subaccounts).toEqual(['0xabc']);
+    expect(approval.builder.expiresAt).toBe(T0 + BUILDER_APPROVAL_TTL_MAX);
+    const td = buildBuilderApprovalEip712(approval, 42161);
+    expect(td.primaryType).toBe('BuilderApproval');
+    expect(td.domain).toEqual({
+      name: 'Paradex Session',
+      version: '1',
+      chainId: 42161,
+    });
+  });
+
+  test.each([
+    [{ builder: { account: '0x0', maxFeeRate: '0.0005' } }, 'INVALID_FIELD'],
+    [{ builder: { account: ACCOUNT, maxFeeRate: '0.0005' } }, 'INVALID_FIELD'],
+    [{ builder: { account: BUILDER, maxFeeRate: '0' } }, 'INVALID_FIELD'],
+    [{ builder: { account: BUILDER, maxFeeRate: '0.00251' } }, 'INVALID_FIELD'],
+    [
+      { builder: { account: BUILDER, maxFeeRate: '0.000000001' } },
+      'INVALID_FIELD',
+    ],
+    [
+      { builder: { account: BUILDER, maxFeeRate: '0.000500000' } },
+      'INVALID_FIELD',
+    ],
+    [{ expiresAt: T0 }, 'INVALID_FIELD'],
+    [{ ttlSeconds: BUILDER_APPROVAL_TTL_MAX + 1 }, 'TTL_EXCEEDED'],
+    [{ subaccounts: [ACCOUNT] }, 'INVALID_FIELD'],
+  ] as Array<[Partial<CreateBuilderApprovalParams>, string]>)(
+    'refuses %j',
+    (overrides, code) => {
+      expectCode(() => createBuilderApproval(approvalParams(overrides)), code);
+    },
+  );
+
+  test('accepts the bounds', () => {
+    expect(() =>
+      createBuilderApproval(
+        approvalParams({
+          builder: { account: BUILDER, maxFeeRate: '0.0025' },
+          ttlSeconds: BUILDER_APPROVAL_TTL_MAX,
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      createBuilderApproval(
+        approvalParams({
+          builder: { account: BUILDER, maxFeeRate: '0.00000001' },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  test('an expiresAt of 0 is refused, not taken to follow a session', () => {
+    const approval = createBuilderApproval(approvalParams());
+    const unexpiring: BuilderApproval = {
+      ...approval,
+      builder: { ...approval.builder, expiresAt: 0 },
+    };
+    expectCode(() => {
+      validateBuilderApproval(unexpiring);
+    }, 'INVALID_FIELD');
   });
 });
