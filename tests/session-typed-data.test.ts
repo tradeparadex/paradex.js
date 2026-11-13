@@ -515,6 +515,42 @@ describe('refusals', () => {
     ).not.toThrow();
   });
 
+  test.each(['0', '0.00251', '0.000000001', '0.5'])(
+    'builder grants refuse a maxFeeRate of %s, as the server does',
+    (maxFeeRate) => {
+      expectCode(
+        () =>
+          createSessionGrant(
+            params({ builder: { account: BUILDER, maxFeeRate } }),
+          ),
+        'INVALID_FIELD',
+      );
+    },
+  );
+
+  test('a builder expiry must be after issuedAt', () => {
+    expectCode(
+      () =>
+        createSessionGrant(
+          params({
+            builder: { account: BUILDER, maxFeeRate: '0.0005', expiresAt: T0 },
+          }),
+        ),
+      'INVALID_FIELD',
+    );
+    expect(() =>
+      createSessionGrant(
+        params({
+          builder: {
+            account: BUILDER,
+            maxFeeRate: '0.0025',
+            expiresAt: T0 + 1,
+          },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
   test.each(['trade:block', 'account:settings'] as const)(
     'builder grants cannot include %s',
     (scope) => {
