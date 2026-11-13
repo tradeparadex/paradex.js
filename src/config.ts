@@ -60,7 +60,9 @@ export interface ParadexConfig {
   readonly paradexApiUrl?: string;
 }
 
-type ParadexEnvironment = 'testnet' | 'prod';
+const PARADEX_ENVIRONMENTS = ['prod', 'testnet', 'nightly'] as const;
+
+type ParadexEnvironment = (typeof PARADEX_ENVIRONMENTS)[number];
 
 /**
  * Fetches the Paradex config for the given environment.
@@ -88,7 +90,7 @@ export async function fetchConfig(
 function assertParadexEnvironment(
   environment: string,
 ): asserts environment is ParadexEnvironment {
-  if (environment !== 'testnet' && environment !== 'prod') {
+  if (!(PARADEX_ENVIRONMENTS as readonly string[]).includes(environment)) {
     throw new Error(`Invalid Paradex environment: ${environment}`);
   }
 }
