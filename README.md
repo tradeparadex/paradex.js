@@ -108,6 +108,62 @@ const info = await Paradex.Onboarding.fetch({
 console.log(info.address, info.exists);
 ```
 
+### Determinism guard (experimental)
+
+A wallet derives its Paradex key from a signature, so a wallet that does not sign deterministically derives a different key each time. By default `fromEthSigner` asks for the signature twice and compares them. Set `determinismGuard` to check the derived key against the wallet's account instead:
+
+```typescript
+const client = await Paradex.Client.fromEthSigner({
+  config,
+  signer,
+  determinismGuard: true,
+});
+```
+
+With the guard on, the SDK:
+
+1. Refuses a wallet that has contract code (a smart contract wallet), before asking for any signature. An EIP-7702 delegated EOA is allowed. A code lookup that fails or times out counts as no code.
+2. Asks for one signature and looks the derived public key up with `GET /onboarding`. If an account holds it, the key is accepted with that one signature.
+3. Otherwise, looks the wallet up. If the wallet already has an account, its key differs from the one just derived: the SDK throws a `DeterminismGuardError` with code `key_mismatch` (or `evm_owned_account` when the wallet's account is an EVM-owned one, which is used through `SessionConnector`). Do not onboard a new account in either case.
+4. Otherwise the account is new: it asks for a second signature and throws `non_deterministic` if the two differ.
+
+Any failed lookup throws `lookup_failed`, so the guard never returns a key it could not check. The account address always comes from the Paradex API, as with `serverDeriveAddress: true`.
+
+The guard needs the wallet address and a provider to read its code. `Paradex.Signer.fromEthers()` provides both when the ethers signer has a provider. Otherwise pass them, along with providers for any other chain the wallet might be a contract on:
+
+```typescript
+const client = await Paradex.Client.fromEthSigner({
+  config,
+  signer,
+  determinismGuard: {
+    walletAddress: '0x...',
+    codeProviders: [mainnetProvider, arbitrumProvider, baseProvider],
+    // Called once the key is accepted, e.g. to record that a new wallet
+    // passed the two-signature test. The SDK keeps no state between calls.
+    onResult: ({ kind, signatures }) => console.log(kind, signatures),
+  },
+});
+```
+
+For a local private-key wallet with no provider, pass `contractCodeCheck: false`.
+
+```typescript
+try {
+  await Paradex.Client.fromEthSigner({
+    config,
+    signer,
+    determinismGuard: true,
+  });
+} catch (error) {
+  if (error instanceof Paradex.DeterminismGuardError) {
+    // 'contract_wallet' | 'key_mismatch' | 'evm_owned_account'
+    // | 'non_deterministic'
+    // | 'lookup_failed' | 'invalid_options'
+    console.error(error.code, error.message);
+  }
+}
+```
+
 ### Configuration
 
 Fetch environment-specific configuration:
@@ -290,7 +346,7 @@ A grant from a wallet with no Paradex account yet opens the account along with i
 
 An EVM-owned account's sub-accounts can be listed before signing in with `connector.listSubaccounts(ethAddress)`. When the owner signer knows its address (`ownerSignerFromEip1193` does; pass `address` to `ownerSignerFromExternal`), `open()` checks a grant's `subaccounts` against that list before the wallet is asked to sign.
 
-`SessionAccounts` then mints a JWT per account the grant lists (the main account and any `subaccounts`) through `POST /v1/auth/{session_public_key}` with `PARADEX-STARKNET-ACCOUNT`, each for at most 15 minutes and never past the grant's expiry. It keeps one websocket per account and routes requests by account. Sessions never use `on_behalf_of`. When the server refuses a session token or the session key, `SessionAccounts` checks `GET /v2/sessions/{grant_id}/status`. If the grant is revoked or expired, every account is dropped and `onDropped` is called; any other refusal is treated as transient. RFQ endpoints need `trade:rfq` in the grant, or they answer 403 `INVALID_TOKEN_SCOPE`. Create, execute and drafts are open to a session whose grant also caps nothing and names no builder, where the server has enabled RFQ for the account's sessions; otherwise they answer 403 `REQUEST_NOT_ALLOWED`. An account not yet deployed gets 400 `NOT_ONBOARDED`. None of these ends the session. A session may also deposit into its own account (`POST /v1/deposit-addresses`, and `POST /v1/bridges/layerswap/swaps` with `use_deposit_address` and no `source_address`), but never move funds out. `accounts.revoke()` revokes the grant itself.
+`SessionAccounts` then mints a JWT per account the grant lists (the main account and any `subaccounts`) through `POST /v1/auth/{session_public_key}` with `PARADEX-STARKNET-ACCOUNT`, each for at most 15 minutes and never past the grant's expiry. It keeps one websocket per account and routes requests by account. Sessions never use `on_behalf_of`. When the server refuses a session token or the session key, `SessionAccounts` checks `GET /v2/sessions/{grant_id}/status`. If the grant is revoked or expired, every account is dropped and `onDropped` is called; any other refusal is treated as transient. RFQ endpoints need `trade:rfq` in the grant, or they answer 403 `INVALID_TOKEN_SCOPE`. Create, execute and drafts are open to a session whose grant also caps nothing and names no builder, where the server has enabled RFQ for the account's sessions; otherwise they answer 403 `REQUEST_NOT_ALLOWED`. An account not yet deployed gets 400 `NOT_ONBOARDED`. None of these ends the session. A session may also deposit into its own account (`POST /v1/deposit-addresses`, and `POST /v1/bridges/layerswap/swaps` with `use_deposit_address` and no `source_address`), but never move funds out. `accounts.revoke()` revokes the grant itself and, by default, cancels the session's resting orders, TWAPs and untriggered stops on every account: once revoked, the key can no longer cancel them. This differs from the Paradex app's own sign-out, which keeps orders because they are the owner's own trading. With `accounts.revoke({ cancelOrders: false })` a grant without a builder signs out and its orders keep working; a builder grant still has its TWAPs and untriggered stops cancelled and keeps only its resting orders.
 
 ```typescript
 const connector = new Paradex.SessionConnector({
