@@ -18,12 +18,16 @@ import {
 } from './session-transport.js';
 import {
   assertGrantActive,
+  buildBuilderApprovalEip712,
   buildSessionGrantEip712,
   canonicalFelt,
+  createBuilderApproval,
   createSessionGrant,
   grantAccounts,
   nowSeconds,
   SessionGrantError,
+  type BuilderApproval,
+  type CreateBuilderApprovalParams,
   type CreateSessionGrantParams,
   type LimitCaps,
   type LimitName,
@@ -35,6 +39,27 @@ import type { Hex } from './types.js';
 
 export const SESSIONS_PATH = '/v2/sessions';
 export const EVM_SUBACCOUNTS_PATH = '/v2/onboarding/subaccounts';
+export const BUILDER_APPROVALS_PATH = '/v2/builders/approvals';
+export const SYSTEM_TIME_PATH = '/v1/system/time';
+
+/**
+ * What {@link SessionConnector.approveBuilder} takes. `issuedAt` defaults to
+ * the server's clock (`GET /v1/system/time`), since the server refuses an
+ * approval issued in its future.
+ */
+export type ApproveBuilderParams = Omit<
+  CreateBuilderApprovalParams,
+  'paradexChain' | 'environment' | 'issuedAt'
+> & { readonly issuedAt?: number };
+
+/** A registered builder approval and the owner's signature over it. */
+export interface RegisteredBuilderApproval {
+  readonly approval: BuilderApproval;
+  readonly ownerSignature: Hex;
+  readonly signatureChainId: number;
+  /** The server's response to `POST /v2/builders/approvals`. */
+  readonly response: unknown;
+}
 
 /** A registered session: the grant and the key that may act under it. */
 export interface Session {
@@ -342,6 +367,77 @@ export class SessionConnector {
   }
 
   /**
+   * Has the owner approve a builder's fee without opening a session (one
+   * wallet prompt) and registers the approval with
+   * `POST /v2/builders/approvals`, which needs no JWT. The approval covers
+   * the account and any `subaccounts` it lists until `builder.expiresAt`.
+   * The owner revokes it with `DELETE /v2/builders/approvals/{builder_account}`.
+   *
+   * @experimental
+   */
+  async approveBuilder(
+    params: ApproveBuilderParams,
+  ): Promise<RegisteredBuilderApproval> {
+    const approval = createBuilderApproval({
+      ...params,
+      paradexChain: this.paradexChain,
+      environment: this.environment,
+      issuedAt: params.issuedAt ?? (await this.serverTime()),
+    });
+    await this.assertSubaccountsOwned(approval);
+    const signatureChainId = await this.owner.getChainId();
+    const typedData = buildBuilderApprovalEip712(approval, signatureChainId);
+    const ownerSignature = assertEoaSignature(
+      await this.owner.signTypedData({
+        typedData,
+        digest: hashTypedData(typedData),
+      }),
+    );
+    const response = await this.transport({
+      method: 'POST',
+      url: `${this.apiUrl}${BUILDER_APPROVALS_PATH}`,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        approval,
+        signature: ownerSignature,
+        signature_type: 'eip712',
+        signature_chain_id: signatureChainId,
+      }),
+    });
+    if (response.status < 200 || response.status >= 300) {
+      throw new SessionApiError(response.status, response.body);
+    }
+    return {
+      approval,
+      ownerSignature,
+      signatureChainId,
+      response: response.body,
+    };
+  }
+
+  /** The server's clock in whole seconds, from `GET /v1/system/time`. */
+  private async serverTime(): Promise<number> {
+    const response = await this.transport({
+      method: 'GET',
+      url: `${this.apiUrl}${SYSTEM_TIME_PATH}`,
+      headers: {},
+    });
+    if (response.status < 200 || response.status >= 300) {
+      throw new SessionApiError(response.status, response.body);
+    }
+    const ms = Number(
+      (response.body as { server_time?: unknown } | null)?.server_time,
+    );
+    if (!Number.isSafeInteger(ms) || ms <= 0) {
+      throw new SessionApiError(response.status, {
+        error: 'INVALID_RESPONSE',
+        message: `GET ${SYSTEM_TIME_PATH} returned no server_time`,
+      });
+    }
+    return Math.floor(ms / 1000);
+  }
+
+  /**
    * Restores registered sessions from storage for this environment. Expired
    * sessions and sessions that never registered are deleted; records that
    * cannot be read are skipped.
@@ -381,7 +477,9 @@ export class SessionConnector {
    * when the signer cannot name its address or the listing fails for any
    * reason, leaving `POST /v2/sessions` to decide.
    */
-  private async assertSubaccountsOwned(grant: SessionGrant): Promise<void> {
+  private async assertSubaccountsOwned(
+    grant: Pick<SessionGrant, 'subaccounts'>,
+  ): Promise<void> {
     if (grant.subaccounts.length === 0 || this.owner.getAddress == null) {
       return;
     }

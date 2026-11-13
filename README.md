@@ -405,6 +405,18 @@ const unsubscribe = await accounts.subscribe('0x...', 'orders.ALL', (data) =>
 
 > `/v2/sessions` is experimental; its request and response shapes may change.
 
+### Builder approvals without a session (experimental)
+
+An owner who trades with its main key can approve a builder's fee without opening a session. `SessionConnector.approveBuilder()` reads `issuedAt` from the server's clock (`GET /v1/system/time`), since the server refuses an approval issued in its future. It then has the owner sign a `BuilderApproval` with EIP-712 (one wallet prompt) and sends it to `POST /v2/builders/approvals`, which needs no JWT. `builder.maxFeeRate` must be above 0, have at most 8 decimal places and be at most `0.0025`. The approval expires `ttlSeconds` after `issuedAt`, at most 180 days (the default). Builder approvals carry no session limits, and Stark-key owners can't sign them. The owner revokes an approval with `DELETE /v2/builders/approvals/{builder_account}`.
+
+```ts
+const { approval } = await connector.approveBuilder({
+  account: '0x<account>',
+  builder: { account: '0x<builder account>', maxFeeRate: '0.0005' },
+  ttlSeconds: 30 * 24 * 3600,
+});
+```
+
 ## Best Practices
 
 ### 1. Environment Variables
@@ -564,6 +576,8 @@ For a full React application example, see: [paradex-react-example](https://githu
 | Method                                | Description                                      | Returns           |
 | ------------------------------------- | ------------------------------------------------ | ----------------- |
 | `createGrant(params)`                 | Build a canonical, validated `SessionGrant`      | `SessionGrant`    |
+| `createBuilderApproval(params)`       | Build a canonical, validated `BuilderApproval`   | `BuilderApproval` |
+| `buildBuilderApprovalEip712(a, id)`   | EIP-712 typed data for a `BuilderApproval`       | `Eip712TypedData` |
 | `buildGrantEip712(grant, chainId)`    | EIP-712 typed data for an EVM wallet             | `Eip712TypedData` |
 | `buildGrantSnip12(grant)`             | SNIP-12 rev 1 typed data for a Stark owner       | `TypedData`       |
 | `buildPasskeyGrantEip712/Snip12(...)` | Typed data for `PasskeyGrant`                    | typed data        |
