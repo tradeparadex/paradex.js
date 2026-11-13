@@ -868,12 +868,33 @@ describe('SessionConnector.approveBuilder', () => {
       .approveBuilder({
         account: MAIN,
         builder: { account: BUILDER_ACCOUNT, maxFeeRate: '0.003' },
-        issuedAt: T0,
       })
       .catch((e: unknown) => e);
     expectCode(error, 'INVALID_FIELD');
     expect(sign).not.toHaveBeenCalled();
-    expect(transport).not.toHaveBeenCalled();
+    expect(transport.mock.calls.map(([req]) => req.method)).toEqual(['GET']);
+  });
+
+  test('refuses a subaccount the owner wallet does not own before it signs', async () => {
+    const { sign, transport, connector } = setup({
+      ownerAddress: '0x' + '11'.repeat(20),
+      respond: (req) =>
+        req.url.includes('/v2/onboarding/subaccounts')
+          ? { status: 200, body: { results: [] } }
+          : approvalServer(req),
+    });
+    const error = await connector
+      .approveBuilder({
+        account: MAIN,
+        builder: { account: BUILDER_ACCOUNT, maxFeeRate: '0.0005' },
+        subaccounts: [SUB],
+      })
+      .catch((e: unknown) => e);
+    expectCode(error, 'ACCOUNT_NOT_ELIGIBLE');
+    expect(sign).not.toHaveBeenCalled();
+    expect(transport.mock.calls.some(([req]) => req.method === 'POST')).toBe(
+      false,
+    );
   });
 
   test('surfaces a server refusal', async () => {

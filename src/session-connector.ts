@@ -43,14 +43,14 @@ export const BUILDER_APPROVALS_PATH = '/v2/builders/approvals';
 export const SYSTEM_TIME_PATH = '/v1/system/time';
 
 /**
- * What {@link SessionConnector.approveBuilder} takes. `issuedAt` defaults to
- * the server's clock (`GET /v1/system/time`), since the server refuses an
- * approval issued in its future.
+ * What {@link SessionConnector.approveBuilder} takes. `issuedAt` always comes
+ * from the server's clock (`GET /v1/system/time`), since the server refuses
+ * an approval issued in its future.
  */
 export type ApproveBuilderParams = Omit<
   CreateBuilderApprovalParams,
   'paradexChain' | 'environment' | 'issuedAt'
-> & { readonly issuedAt?: number };
+>;
 
 /** A registered builder approval and the owner's signature over it. */
 export interface RegisteredBuilderApproval {
@@ -382,7 +382,7 @@ export class SessionConnector {
       ...params,
       paradexChain: this.paradexChain,
       environment: this.environment,
-      issuedAt: params.issuedAt ?? (await this.serverTime()),
+      issuedAt: await this.serverTime(),
     });
     await this.assertSubaccountsOwned(approval);
     const signatureChainId = await this.owner.getChainId();

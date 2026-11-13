@@ -859,8 +859,12 @@ export function validateSessionGrant(
   if (hasBuilder && builder.account === grant.account) {
     throw invalid('builder.account', 'must not be the granting account');
   }
+  if (hasBuilder) requireBuilderFeeRate(builder.maxFeeRate);
   if (builder.expiresAt > grant.expiresAt) {
     throw invalid('builder.expiresAt', 'must not outlive the session');
+  }
+  if (builder.expiresAt !== 0 && builder.expiresAt <= grant.issuedAt) {
+    throw invalid('builder.expiresAt', 'must be after issuedAt');
   }
   validateLimits(grant.limits, hasBuilder, 'limits', options);
 }
@@ -870,6 +874,27 @@ export const BUILDER_APPROVAL_TTL_MAX = 180 * DAY;
 /** Highest `maxFeeRate` the server accepts on a builder approval. */
 export const MAX_BUILDER_FEE_RATE = '0.0025';
 const BUILDER_FEE_RATE_PLACES = 8;
+
+/**
+ * A builder's fee ceiling, as the server checks it on grants and approvals:
+ * above 0, at most 8 decimal places and at most {@link MAX_BUILDER_FEE_RATE}.
+ */
+function requireBuilderFeeRate(maxFeeRate: unknown): void {
+  requireDecimal('builder.maxFeeRate', maxFeeRate, false);
+  const rate = new BigNumber(maxFeeRate as string);
+  if (rate.isZero() || rate.isGreaterThan(MAX_BUILDER_FEE_RATE)) {
+    throw invalid(
+      'builder.maxFeeRate',
+      `must be above 0 and at most ${MAX_BUILDER_FEE_RATE}`,
+    );
+  }
+  if ((rate.decimalPlaces() ?? 0) > BUILDER_FEE_RATE_PLACES) {
+    throw invalid(
+      'builder.maxFeeRate',
+      `must have at most ${BUILDER_FEE_RATE_PLACES} decimal places`,
+    );
+  }
+}
 
 /**
  * Checks a builder approval against the server's rules: a builder other than
@@ -892,20 +917,7 @@ export function validateBuilderApproval(approval: BuilderApproval): void {
   if (builder.account === approval.account) {
     throw invalid('builder.account', 'must not be the approving account');
   }
-  requireDecimal('builder.maxFeeRate', builder.maxFeeRate, false);
-  const rate = new BigNumber(builder.maxFeeRate);
-  if (rate.isZero() || rate.isGreaterThan(MAX_BUILDER_FEE_RATE)) {
-    throw invalid(
-      'builder.maxFeeRate',
-      `must be above 0 and at most ${MAX_BUILDER_FEE_RATE}`,
-    );
-  }
-  if ((rate.decimalPlaces() ?? 0) > BUILDER_FEE_RATE_PLACES) {
-    throw invalid(
-      'builder.maxFeeRate',
-      `must have at most ${BUILDER_FEE_RATE_PLACES} decimal places`,
-    );
-  }
+  requireBuilderFeeRate(builder.maxFeeRate);
   requireTimestamp('builder.expiresAt', builder.expiresAt);
   if (builder.expiresAt <= approval.issuedAt) {
     throw invalid('builder.expiresAt', 'must be after issuedAt');
