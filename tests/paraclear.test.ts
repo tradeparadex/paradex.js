@@ -280,6 +280,7 @@ describe('withdraw', () => {
     const config = configFactory();
 
     const mockAccount = await fromEthSigner({
+      serverDeriveAddress: false,
       provider: createMockProvider(),
       config,
       signer,
@@ -357,6 +358,7 @@ describe('withdraw', () => {
     const config = configFactory();
 
     const mockAccount = await fromEthSigner({
+      serverDeriveAddress: false,
       provider: createMockProvider(),
       config,
       signer,
@@ -438,6 +440,7 @@ describe('withdraw', () => {
     );
     const signer = ethersSignerAdapter(wallet);
     const mockAccount = await fromEthSigner({
+      serverDeriveAddress: false,
       provider: createMockProvider(),
       config: configFactory(),
       signer,

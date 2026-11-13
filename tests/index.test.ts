@@ -58,7 +58,11 @@ describe('Paradex SDK exports', () => {
       const signer = Paradex.Signer.fromEthers(wallet);
       const config = configFactory();
 
-      const client = await Paradex.Client.fromEthSigner({ config, signer });
+      const client = await Paradex.Client.fromEthSigner({
+        config,
+        signer,
+        serverDeriveAddress: false,
+      });
 
       expect(client).toBeDefined();
       expect(client.getAddress()).toBe(
@@ -90,6 +94,7 @@ describe('Paradex SDK exports', () => {
 
       const config = configFactory();
       const client = await Paradex.Client.fromStarknetAccount({
+        serverDeriveAddress: false,
         config,
         account: snAccount,
         starknetProvider: snProvider,

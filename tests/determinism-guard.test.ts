@@ -600,6 +600,7 @@ describe('deriveFromEthSigner without the guard (unchanged)', () => {
         config: configFactory(),
         signer,
         determinismGuard,
+        serverDeriveAddress: false,
       });
 
       expect(signatures()).toBe(2);

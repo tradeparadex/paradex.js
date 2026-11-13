@@ -38,6 +38,7 @@ describe('derive credentials from eth signer', () => {
       const signer = ethersSignerAdapter(wallet);
 
       const credentials = await Account.deriveFromEthSigner({
+        serverDeriveAddress: false,
         config: configFactory(),
         signer,
       });
@@ -57,7 +58,11 @@ describe('derive credentials from non-deterministic eth signer', () => {
     };
 
     await expect(
-      Account.deriveFromEthSigner({ config: configFactory(), signer }),
+      Account.deriveFromEthSigner({
+        config: configFactory(),
+        signer,
+        serverDeriveAddress: false,
+      }),
     ).rejects.toThrow('Wallet does not support deterministic signing');
   });
 });
@@ -87,6 +92,7 @@ describe('create account from eth signer', () => {
       const signer = ethersSignerAdapter(wallet);
 
       const account = await Account.fromEthSigner({
+        serverDeriveAddress: false,
         provider: createMockProvider(),
         config: configFactory(),
         signer,
@@ -131,6 +137,7 @@ describe('derive credentials from starknet account', () => {
       });
 
       const credentials = await Account.deriveFromStarknetAccount({
+        serverDeriveAddress: false,
         config: configFactory(),
         account: snAccount,
         starknetProvider: snProvider,
@@ -176,6 +183,7 @@ describe('create account from starknet signer', () => {
       });
 
       const account = await Account.fromStarknetAccount({
+        serverDeriveAddress: false,
         provider: createMockProvider(),
         config: configFactory(),
         account: snAccount,
@@ -330,6 +338,7 @@ describe('server-derived account address', () => {
   test('uses the address returned by the API', async () => {
     const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
     const local = await Account.deriveFromEthSigner({
+      serverDeriveAddress: false,
       config: configFactory(),
       signer,
     });
@@ -365,62 +374,179 @@ describe('server-derived account address', () => {
     );
   });
 
-  test('derives locally and skips the API by default', async () => {
-    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
+  test('fetches the address from the API by default', async () => {
+    const credentials = await Account.deriveFromEthSigner({
+      config: { ...configFactory(), paradexApiUrl: apiUrl },
+      signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+    });
+
+    expect(credentials.address).toBe(serverAddress);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  function onboardingResponse(
+    address: string,
+    exists: boolean,
+  ): { ok: boolean; json: () => Promise<unknown> } {
+    return {
+      ok: true,
+      json: async () => ({
+        address,
+        exists,
+        account_signer_type: 'starknet',
+      }),
+    };
+  }
+
+  test('finds an account stored under the zero-padded key', async () => {
+    const newAccountAddress = '0xabc';
+    fetchMock
+      .mockReset()
+      .mockResolvedValueOnce(onboardingResponse(newAccountAddress, false))
+      .mockResolvedValueOnce(onboardingResponse(serverAddress, true));
 
     const credentials = await Account.deriveFromEthSigner({
       config: { ...configFactory(), paradexApiUrl: apiUrl },
-      signer,
+      signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+    });
+
+    expect(credentials.address).toBe(serverAddress);
+    const keys = fetchMock.mock.calls.map((call) =>
+      new URL(call[0] as string).searchParams.get('public_key'),
+    );
+    const publicKey = await expectedPublicKey();
+    expect(keys).toEqual([
+      publicKey,
+      `0x${publicKey.slice(2).padStart(64, '0')}`,
+    ]);
+  });
+
+  test('uses the unpadded lookup for a key with no account', async () => {
+    fetchMock
+      .mockReset()
+      .mockResolvedValueOnce(onboardingResponse(serverAddress, false))
+      .mockResolvedValueOnce(onboardingResponse('0xabc', false));
+
+    const credentials = await Account.deriveFromEthSigner({
+      config: { ...configFactory(), paradexApiUrl: apiUrl },
+      signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+    });
+
+    expect(credentials.address).toBe(serverAddress);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('a failed padded-key lookup throws instead of using the first result', async () => {
+    fetchMock
+      .mockReset()
+      .mockResolvedValueOnce(onboardingResponse(serverAddress, false))
+      .mockRejectedValueOnce(new Error('socket hang up'));
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: { ...configFactory(), paradexApiUrl: apiUrl },
+        signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+      }),
+    ).rejects.toThrow(/Could not fetch the account address.*socket hang up/);
+  });
+
+  test('serverDeriveAddress: false derives the legacy address locally, with no request', async () => {
+    const credentials = await Account.deriveFromEthSigner({
+      config: { ...configFactory(), paradexApiUrl: apiUrl },
+      signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+      serverDeriveAddress: false,
     });
 
     expect(credentials.address).toBe(localAddress);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test('throws when no API URL is available', async () => {
-    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
-
+  test.each([
+    ['by default', {}],
+    ['with serverDeriveAddress: true', { serverDeriveAddress: true }],
+  ])('throws when no API URL is available %s', async (_, options) => {
     await expect(
       Account.deriveFromEthSigner({
         config: configFactory(),
-        signer,
-        serverDeriveAddress: true,
+        signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+        ...options,
       }),
-    ).rejects.toThrow('serverDeriveAddress requires an API URL');
+    ).rejects.toThrow(/needs an API URL.*serverDeriveAddress: false/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('throws when the API URL is empty', async () => {
-    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
-
     await expect(
       Account.deriveFromEthSigner({
         config: { ...configFactory(), paradexApiUrl: '' },
-        signer,
-        serverDeriveAddress: true,
+        signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
       }),
-    ).rejects.toThrow('serverDeriveAddress requires an API URL');
+    ).rejects.toThrow('needs an API URL');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test('throws when the API request fails', async () => {
+  async function deriveError(): Promise<Error> {
+    const result = await Account.deriveFromEthSigner({
+      config: configFactory(),
+      signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+      apiUrl,
+    }).then(
+      (credentials) => credentials,
+      (error: unknown) => error,
+    );
+    if (!(result instanceof Error)) {
+      throw new Error(`expected a rejection, got ${JSON.stringify(result)}`);
+    }
+    return result;
+  }
+
+  test('a failed request throws and never falls back to the local address', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: false,
       status: 400,
       statusText: 'Bad Request',
+      json: async () => ({ message: 'invalid public key' }),
     });
-    const signer = ethersSignerAdapter(ethers.Wallet.fromPhrase(seed));
 
-    await expect(
-      Account.deriveFromEthSigner({
-        config: configFactory(),
-        signer,
-        serverDeriveAddress: true,
-        apiUrl,
-      }),
-    ).rejects.toThrow(
-      'Failed to fetch Paradex onboarding info: Bad Request 400',
+    const error = await deriveError();
+
+    expect(error.message).toBe(
+      'Could not fetch the account address from GET /onboarding: ' +
+        'Failed to fetch Paradex onboarding info: Bad Request 400 (invalid public key). ' +
+        'Retry. Pass serverDeriveAddress: false only if local derivation is right for ' +
+        'this account (only accounts created with the legacy proxy class).',
     );
+    expect(error.message).not.toContain(localAddress);
+    expect((error as Error & { cause?: unknown }).cause).toBeInstanceOf(Error);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('a network error throws with the cause attached', async () => {
+    const networkError = new TypeError('fetch failed');
+    fetchMock.mockRejectedValueOnce(networkError);
+
+    const error = await deriveError();
+
+    expect(error.message).toMatch(
+      /^Could not fetch the account address from GET \/onboarding: fetch failed\. Retry\./,
+    );
+    expect((error as Error & { cause?: unknown }).cause).toBe(networkError);
+  });
+
+  test.each([
+    ['a missing address', {}],
+    ['a non-hex address', { address: '0xnot-hex' }],
+    ['an over-long address', { address: `0x${'1'.repeat(65)}` }],
+  ])('rejects a response with %s', async (_, body) => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ exists: false, ...body }),
+    });
+
+    const error = await deriveError();
+
+    expect(error.message).toMatch(/onboarding|account address/);
+    expect(error.message).not.toContain(localAddress);
   });
 
   test('fromEthSigner passes the option through', async () => {

@@ -50,7 +50,11 @@ describe('DefaultProvider', () => {
       const signer = ethersSignerAdapter(wallet);
       const config = configFactory();
 
-      const credentials = await deriveFromEthSigner({ config, signer });
+      const credentials = await deriveFromEthSigner({
+        config,
+        signer,
+        serverDeriveAddress: false,
+      });
       const provider = new DefaultProvider(config, credentials);
 
       expect(provider).toBeInstanceOf(DefaultProvider);
@@ -92,7 +96,11 @@ describe('DefaultProvider', () => {
       const signer = ethersSignerAdapter(wallet);
       const config = configFactory();
 
-      const credentials = await deriveFromEthSigner({ config, signer });
+      const credentials = await deriveFromEthSigner({
+        config,
+        signer,
+        serverDeriveAddress: false,
+      });
       const provider = new DefaultProvider(config, credentials);
 
       const account = provider.getAccount();
@@ -135,7 +143,11 @@ describe('DefaultProvider', () => {
       const signer = ethersSignerAdapter(wallet);
       const config = configFactory();
 
-      const credentials = await deriveFromEthSigner({ config, signer });
+      const credentials = await deriveFromEthSigner({
+        config,
+        signer,
+        serverDeriveAddress: false,
+      });
       const provider = new DefaultProvider(config, credentials);
 
       // Mock fetch for the authenticated request
@@ -178,7 +190,11 @@ describe('DefaultProvider', () => {
       const signer = ethersSignerAdapter(wallet);
       const config = configFactory();
 
-      const credentials = await deriveFromEthSigner({ config, signer });
+      const credentials = await deriveFromEthSigner({
+        config,
+        signer,
+        serverDeriveAddress: false,
+      });
       const provider = new DefaultProvider(config, credentials);
 
       // Mock fetch to return an error
@@ -215,7 +231,11 @@ describe('DefaultProvider', () => {
       const signer = ethersSignerAdapter(wallet);
       const config = configFactory();
 
-      const credentials = await deriveFromEthSigner({ config, signer });
+      const credentials = await deriveFromEthSigner({
+        config,
+        signer,
+        serverDeriveAddress: false,
+      });
       const provider = new DefaultProvider(config, credentials);
 
       // Mock fetch to return HTTP error
