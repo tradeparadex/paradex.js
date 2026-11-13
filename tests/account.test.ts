@@ -384,6 +384,72 @@ describe('server-derived account address', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  function onboardingResponse(
+    address: string,
+    exists: boolean,
+  ): { ok: boolean; json: () => Promise<unknown> } {
+    return {
+      ok: true,
+      json: async () => ({
+        address,
+        exists,
+        account_signer_type: 'starknet',
+      }),
+    };
+  }
+
+  test('finds an account stored under the zero-padded key', async () => {
+    const newAccountAddress = '0xabc';
+    fetchMock
+      .mockReset()
+      .mockResolvedValueOnce(onboardingResponse(newAccountAddress, false))
+      .mockResolvedValueOnce(onboardingResponse(serverAddress, true));
+
+    const credentials = await Account.deriveFromEthSigner({
+      config: { ...configFactory(), paradexApiUrl: apiUrl },
+      signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+    });
+
+    expect(credentials.address).toBe(serverAddress);
+    const keys = fetchMock.mock.calls.map((call) =>
+      new URL(call[0] as string).searchParams.get('public_key'),
+    );
+    const publicKey = await expectedPublicKey();
+    expect(keys).toEqual([
+      publicKey,
+      `0x${publicKey.slice(2).padStart(64, '0')}`,
+    ]);
+  });
+
+  test('uses the unpadded lookup for a key with no account', async () => {
+    fetchMock
+      .mockReset()
+      .mockResolvedValueOnce(onboardingResponse(serverAddress, false))
+      .mockResolvedValueOnce(onboardingResponse('0xabc', false));
+
+    const credentials = await Account.deriveFromEthSigner({
+      config: { ...configFactory(), paradexApiUrl: apiUrl },
+      signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+    });
+
+    expect(credentials.address).toBe(serverAddress);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('a failed padded-key lookup throws instead of using the first result', async () => {
+    fetchMock
+      .mockReset()
+      .mockResolvedValueOnce(onboardingResponse(serverAddress, false))
+      .mockRejectedValueOnce(new Error('socket hang up'));
+
+    await expect(
+      Account.deriveFromEthSigner({
+        config: { ...configFactory(), paradexApiUrl: apiUrl },
+        signer: ethersSignerAdapter(ethers.Wallet.fromPhrase(seed)),
+      }),
+    ).rejects.toThrow(/Could not fetch the account address.*socket hang up/);
+  });
+
   test('serverDeriveAddress: false derives the legacy address locally, with no request', async () => {
     const credentials = await Account.deriveFromEthSigner({
       config: { ...configFactory(), paradexApiUrl: apiUrl },
@@ -472,7 +538,7 @@ describe('server-derived account address', () => {
     ['a non-hex address', { address: '0xnot-hex' }],
     ['an over-long address', { address: `0x${'1'.repeat(65)}` }],
   ])('rejects a response with %s', async (_, body) => {
-    fetchMock.mockResolvedValueOnce({
+    fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({ exists: false, ...body }),
     });

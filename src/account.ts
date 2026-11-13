@@ -640,18 +640,35 @@ async function resolveAccountAddress({
     );
   }
 
-  let info: OnboardingInfo;
-  try {
-    info = await fetchOnboarding({ apiUrl: resolvedApiUrl, publicKey });
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw Object.assign(
-      new Error(
-        `Could not fetch the account address from GET /onboarding: ${reason}. ` +
-          `Retry. ${OPT_OUT_HINT}`,
-      ),
-      { cause: error },
-    );
+  // The API matches keys as written, so an account stored under the
+  // zero-padded key reads as missing when looked up unpadded. Use the first
+  // form that has an account; for a new key, the unpadded form's address.
+  let info: OnboardingInfo | undefined;
+  for (const candidate of publicKeyForms(publicKey)) {
+    let result: OnboardingInfo;
+    try {
+      result = await fetchOnboarding({
+        apiUrl: resolvedApiUrl,
+        publicKey: candidate,
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw Object.assign(
+        new Error(
+          `Could not fetch the account address from GET /onboarding: ${reason}. ` +
+            `Retry. ${OPT_OUT_HINT}`,
+        ),
+        { cause: error },
+      );
+    }
+    if (result.exists) {
+      info = result;
+      break;
+    }
+    info ??= result;
+  }
+  if (info == null) {
+    throw new Error('No public key to look up');
   }
   if (!/^0x[0-9a-fA-F]{1,64}$/.test(info.address)) {
     throw new Error(

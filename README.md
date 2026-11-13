@@ -82,7 +82,7 @@ const client = await Paradex.Client.fromStarknetAccount({
 
 ### Account Address
 
-The SDK gets the Paradex account address from the Paradex API (`GET /onboarding`), so it matches the account the Paradex app created for the same key, whichever account class it was created with. For a key with no account yet, it is the address a new account will be created at.
+The SDK gets the Paradex account address from the Paradex API (`GET /onboarding`), so it matches the account the Paradex app created for the same key, whichever account class it was created with. For a key with no account yet, it is the address a new account will be created at. The API matches the key as written, so when the key has no account the SDK also looks it up zero-padded to 64 hex digits, which finds an account onboarded with the padded key.
 
 The API URL comes from the config returned by `Paradex.Config.fetch()`. If you build the config yourself, pass `apiUrl` (for example `https://api.testnet.paradex.trade/v1`):
 
