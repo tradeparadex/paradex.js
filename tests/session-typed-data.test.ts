@@ -1611,7 +1611,9 @@ describe('limits the server does not enforce', () => {
 });
 
 describe('builder passkeys and caps while limits are unenforced', () => {
-  test('a mint under a builder passkey is refused until maxLoss is enforced', () => {
+  // The server checks maxLoss when a builder passkey registers, not on its
+  // mints, so a mint stating only unenforced limits passes.
+  test('a mint under a builder passkey is checked like any other', () => {
     const grant = vectorOf((v) => v.name === 'passkey-grant-builder')
       .message as unknown as PasskeyGrant;
     const builderMint = vectorOf(
@@ -1619,9 +1621,9 @@ describe('builder passkeys and caps while limits are unenforced', () => {
     ).message as unknown as SessionMint;
     const uncapped = { ...builderMint, limits: UNCAPPED_LIMITS };
     const now = builderMint.expiresAt - 60;
-    expectCode(() => {
+    expect(() => {
       assertMintWithinCeiling(uncapped, grant, now);
-    }, 'BUILDER_LIMITS_REQUIRED');
+    }).not.toThrow();
     expect(() => {
       assertMintWithinCeiling(builderMint, grant, now, ENFORCED);
     }).not.toThrow();

@@ -1065,9 +1065,9 @@ function exceeds(message: string): SessionGrantError {
  * unless it allows `["*"]`. Unenforced limits are `"none"` on the mint and
  * skipped, so passkeys registered with numeric limits keep working. A mint
  * stating {@link CEILING_LIMITS} takes the ceiling's and fits by definition.
- * Mints under a builder passkey are refused until the server enforces
- * `maxLoss`, as builder grants are. Subaccounts must not list the passkey's
- * account.
+ * A builder passkey's mints are checked like any other: the server checks
+ * `maxLoss` when the passkey registers, not on its mints. Subaccounts must
+ * not list the passkey's account.
  *
  * Expiry: the passkey must not have expired. `expiresAt`
  * {@link LONGEST_SESSION} always fits. Otherwise it must be in the future
@@ -1108,12 +1108,6 @@ export function assertMintWithinCeiling(
     }
   }
   const enforced = options.enforcedLimits ?? DEFAULT_ENFORCED_LIMITS;
-  if (grant.builderAccount !== NO_BUILDER && !enforced.includes('maxLoss')) {
-    throw new SessionGrantError(
-      'BUILDER_LIMITS_REQUIRED',
-      'limits.maxLoss: builder passkeys need a loss cap, which the server does not enforce yet',
-    );
-  }
   // The ceiling's own limits fit by definition. Limits the server does not
   // enforce are "none" on the mint and are not compared, so passkeys
   // registered with numbers keep working.
