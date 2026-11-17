@@ -25,7 +25,7 @@ import * as Paradex from '@paradex/sdk';
 import { ethers } from 'ethers';
 
 // 1. Fetch configuration for your environment
-const config = await Paradex.Config.fetch('testnet'); // or 'mainnet'
+const config = await Paradex.Config.fetch('testnet'); // 'prod', 'testnet' or 'nightly'
 
 // 2. Connect to user's wallet
 const provider = new ethers.BrowserProvider(window.ethereum);
@@ -169,7 +169,7 @@ try {
 Fetch environment-specific configuration:
 
 ```typescript
-const config = await Paradex.Config.fetch('testnet'); // testnet, mainnet, or custom URL
+const config = await Paradex.Config.fetch('testnet'); // 'prod', 'testnet' or 'nightly'
 ```
 
 ## Common Operations
