@@ -1069,6 +1069,13 @@ function exceeds(message: string): SessionGrantError {
  * `maxLoss` when the passkey registers, not on its mints. Subaccounts must
  * not list the passkey's account.
  *
+ * The check holds only when `grant`'s passkey signs. With an empty
+ * `allowCredentials` the user may pick another passkey, on another account
+ * or with another ceiling, and the server checks the mint against that one.
+ * Pin `allowCredentials` to `grant.passkey.credentialId`, or compare the
+ * account in the server's response with `grant.account` and revoke the
+ * session if they differ.
+ *
  * Expiry: the passkey must not have expired. `expiresAt`
  * {@link LONGEST_SESSION} always fits. Otherwise it must be in the future
  * and at most the ceiling's `maxSessionTtl` from `now` (less the clock-skew
