@@ -17,6 +17,7 @@ import {
   buildSessionMintEip712,
   buildSessionMintSnip12,
   canonicalFelt,
+  CEILING_LIMITS,
   createSessionGrant,
   DEFAULT_ENFORCED_LIMITS,
   DEFAULT_LIMIT_CAPS,
@@ -24,9 +25,12 @@ import {
   grantAccounts,
   hashEip712,
   hashSnip12,
+  isCeilingLimits,
+  LONGEST_SESSION,
   lossSummary,
   marketCovers,
   maxSessionTtl,
+  MINT_HASH_ACCOUNT,
   SESSION_TTL,
   SessionGrantError,
   sessionMintChallenge,
@@ -52,7 +56,8 @@ interface Vector {
   readonly name: string;
   readonly primaryType: 'SessionGrant' | 'PasskeyGrant' | 'SessionMint';
   readonly signer: 'eip191' | 'stark' | 'passkey';
-  readonly message: { readonly account: string };
+  /** A `SessionMint` names no account. */
+  readonly message: { readonly account?: string };
   readonly eip712: {
     readonly signatureChainId: number;
     readonly typedData: {
@@ -104,6 +109,13 @@ function buildEip712(v: Vector, chainId: number): Eip712TypedData {
   }
 }
 
+/** The account a vector's SNIP-12 message hash is taken for. */
+function hashAccount(v: Vector): string {
+  if (v.primaryType === 'SessionMint') return MINT_HASH_ACCOUNT;
+  if (v.message.account == null) throw new Error(`${v.name} has no account`);
+  return v.message.account;
+}
+
 function buildSnip12(v: Vector): Starknet.TypedData {
   switch (v.primaryType) {
     case 'SessionGrant':
@@ -125,11 +137,13 @@ const T0 = 1760000000;
 /** Tests below use numeric limits, valid once the server enforces them. */
 const ENFORCED = { enforcedLimits: ALL_LIMITS };
 /** Vectors are stamped with the server's clock, so they may sit at the cap. */
-// The vectors were made under a policy that allows passkey subaccounts.
+// The vectors were made under a policy that allows passkey subaccounts, and
+// include an IP-pinned API grant, which may last 180 days.
 const VECTOR_OPTIONS = {
   ...ENFORCED,
   clockSkewSeconds: 0,
   passkeySubaccounts: true,
+  sessionType: 'api' as const,
 };
 
 const FULL_LIMITS = {
@@ -211,7 +225,7 @@ describe('golden vectors', () => {
   )('%s: SNIP-12 rev 1 types and message hash', (_name, v) => {
     const td = buildSnip12(v);
     expect(td.types).toEqual(v.snip12.typedData.types);
-    const hash = hashSnip12(td, v.message.account);
+    const hash = hashSnip12(td, hashAccount(v));
     expect(BigInt(hash)).toBe(BigInt(v.snip12.messageHash));
     if (v.snip12.signature != null) {
       expect(
@@ -226,7 +240,7 @@ describe('golden vectors', () => {
               ),
             ),
           ),
-          v.message.account,
+          hashAccount(v),
         ),
       ).toBe(true);
     }
@@ -238,6 +252,28 @@ describe('golden vectors', () => {
     expect(
       sessionMintChallenge(v.message as unknown as SessionMint, ENFORCED),
     ).toBe(v.mintChallenge);
+  });
+
+  test('mints name no account or passkey and hash for 0x0', () => {
+    const mints = vectors.filter((v) => v.primaryType === 'SessionMint');
+    expect(mints.length).toBeGreaterThan(0);
+    for (const v of mints) {
+      expect(v.message).not.toHaveProperty('account');
+      expect(v.message).not.toHaveProperty('credentialId');
+      const fields = (
+        v.snip12.typedData.types.SessionMint as Array<{ name: string }>
+      ).map((f) => f.name);
+      expect(fields).not.toContain('account');
+      expect(fields).not.toContain('credentialId');
+    }
+    expect(MINT_HASH_ACCOUNT).toBe('0x0');
+  });
+
+  test("a vector takes the ceiling's limits and the longest session", () => {
+    const v = vectorOf((x) => x.name === 'session-mint-ceiling-limits');
+    const m = v.message as unknown as SessionMint;
+    expect(m.limits).toEqual(CEILING_LIMITS);
+    expect(m.expiresAt).toBe(LONGEST_SESSION);
   });
 
   test('builder grants have no SNIP-12 form', () => {
@@ -853,8 +889,23 @@ describe('SessionMint', () => {
     }).not.toThrow();
   });
 
+  test("all-empty limits take the ceiling's", () => {
+    expect(isCeilingLimits(CEILING_LIMITS)).toBe(true);
+    expect(isCeilingLimits(UNCAPPED_LIMITS)).toBe(false);
+    for (const options of [ENFORCED, {}]) {
+      expect(() => {
+        validateSessionMint({ ...mint(), limits: CEILING_LIMITS }, options);
+      }).not.toThrow();
+    }
+  });
+
+  test('expiresAt 0 asks for the longest session', () => {
+    expect(() => {
+      validateSessionMint({ ...mint(), expiresAt: LONGEST_SESSION }, ENFORCED);
+    }).not.toThrow();
+  });
+
   test.each<[string, Partial<SessionMint>, string]>([
-    ['bad credential id', { credentialId: 'a b' }, 'INVALID_FIELD'],
     ['zero session key', { sessionKey: '0x0' }, 'INVALID_FIELD'],
     [
       'reserved scope',
@@ -862,21 +913,25 @@ describe('SessionMint', () => {
       'RESERVED_SCOPE',
     ],
     ['bad expiry', { expiresAt: -5 }, 'INVALID_FIELD'],
-    ['anchor in subaccounts', { subaccounts: ['ANCHOR'] }, 'INVALID_FIELD'],
+    [
+      'duplicate subaccounts',
+      { subaccounts: ['0x99', '0x99'] },
+      'INVALID_FIELD',
+    ],
+    ['zero subaccount', { subaccounts: ['0x0'] }, 'INVALID_FIELD'],
+    [
+      'some limits empty',
+      { limits: { ...CEILING_LIMITS, maxLoss: 'none' } },
+      'INVALID_FIELD',
+    ],
+    [
+      'empty amounts with markets',
+      { limits: { ...CEILING_LIMITS, markets: ['*'] } },
+      'INVALID_FIELD',
+    ],
   ])('%s is refused', (_name, overrides, code) => {
-    const m = mint();
-    const subaccounts = overrides.subaccounts?.map((a) =>
-      a === 'ANCHOR' ? m.account : a,
-    );
     expectCode(() => {
-      validateSessionMint(
-        {
-          ...m,
-          ...overrides,
-          ...(subaccounts != null ? { subaccounts } : {}),
-        },
-        ENFORCED,
-      );
+      validateSessionMint({ ...mint(), ...overrides }, ENFORCED);
     }, code);
   });
 });
@@ -908,10 +963,30 @@ describe('assertMintWithinCeiling', () => {
     ['session-mint-first-party', 'passkey-grant-first-party'],
     ['session-mint-builder-limits', 'passkey-grant-builder'],
     ['session-mint-subaccount', 'passkey-grant-stark-owner-subaccounts'],
+    ['session-mint-ceiling-limits', 'passkey-grant-first-party'],
+    ['session-mint-ceiling-limits', 'passkey-grant-builder'],
   ])('vector %s fits %s', (mintName, grantName) => {
     const mint = byName<SessionMint>(mintName);
     const grant = byName<PasskeyGrant>(grantName);
-    expect(check(mint, grant, mint.expiresAt - 60)).not.toThrow();
+    const now =
+      mint.expiresAt === LONGEST_SESSION
+        ? grant.issuedAt + 60
+        : mint.expiresAt - 60;
+    expect(check(mint, grant, now)).not.toThrow();
+  });
+
+  test("a mint stating the ceiling's limits fits any ceiling", () => {
+    const { mint, grant, now } = pair();
+    const ceilingMint = { ...mint, limits: CEILING_LIMITS };
+    expect(check(ceilingMint, grant, now)).not.toThrow();
+    // Unenforced, a numeric ceiling would refuse any stated number.
+    expect(() => {
+      assertMintWithinCeiling(
+        { ...ceilingMint, scopes: ['trade'] },
+        { ...grant, builderAccount: '0x0' },
+        now,
+      );
+    }).not.toThrow();
   });
 
   test('under a numeric ceiling a limit must be numeric and at or below it', () => {
@@ -1002,13 +1077,18 @@ describe('assertMintWithinCeiling', () => {
         now,
       ),
     ).not.toThrow();
+    // The passkey's account is the anchor, never one of its subaccounts.
     expectCode(
-      check({ ...mint, account: '0x99' }, grant, now),
-      'EXCEEDS_CEILING',
-    );
-    expectCode(
-      check({ ...mint, credentialId: 'other' }, grant, now),
-      'EXCEEDS_CEILING',
+      check(
+        { ...mint, subaccounts: [grant.account] },
+        {
+          ...grant,
+          builderAccount: '0x0',
+          ceiling: { ...grant.ceiling, includeFutureSubaccounts: true },
+        },
+        now,
+      ),
+      'INVALID_FIELD',
     );
     expectCode(
       check({ ...mint, environment: 'testnet' }, grant, now),
@@ -1531,7 +1611,9 @@ describe('limits the server does not enforce', () => {
 });
 
 describe('builder passkeys and caps while limits are unenforced', () => {
-  test('a mint under a builder passkey is refused until maxLoss is enforced', () => {
+  // The server checks maxLoss when a builder passkey registers, not on its
+  // mints, so a mint stating only unenforced limits passes.
+  test('a mint under a builder passkey is checked like any other', () => {
     const grant = vectorOf((v) => v.name === 'passkey-grant-builder')
       .message as unknown as PasskeyGrant;
     const builderMint = vectorOf(
@@ -1539,9 +1621,9 @@ describe('builder passkeys and caps while limits are unenforced', () => {
     ).message as unknown as SessionMint;
     const uncapped = { ...builderMint, limits: UNCAPPED_LIMITS };
     const now = builderMint.expiresAt - 60;
-    expectCode(() => {
+    expect(() => {
       assertMintWithinCeiling(uncapped, grant, now);
-    }, 'BUILDER_LIMITS_REQUIRED');
+    }).not.toThrow();
     expect(() => {
       assertMintWithinCeiling(builderMint, grant, now, ENFORCED);
     }).not.toThrow();
@@ -1592,6 +1674,57 @@ describe('expired passkeys and mints', () => {
     expectCode(() => {
       assertMintWithinCeiling(m(), expired, expired.expiresAt);
     }, 'GRANT_EXPIRED');
+    expectCode(() => {
+      assertMintWithinCeiling(
+        { ...m(), expiresAt: LONGEST_SESSION },
+        expired,
+        expired.expiresAt,
+      );
+    }, 'GRANT_EXPIRED');
+  });
+
+  test('a mint may outlive its passkey: the session ends with it', () => {
+    const now = m().expiresAt - 3600;
+    const expiring = { ...g(), expiresAt: now + 60 };
+    expect(m().expiresAt).toBeGreaterThan(expiring.expiresAt);
+    expect(() => {
+      assertMintWithinCeiling(m(), expiring, now);
+    }).not.toThrow();
+  });
+
+  test("a mint past the ceiling's maxSessionTtl is refused", () => {
+    const grant = g();
+    const now = m().expiresAt - 3600;
+    const past = { ...m(), expiresAt: now + grant.ceiling.maxSessionTtl + 1 };
+    expectCode(() => {
+      assertMintWithinCeiling(past, grant, now, { clockSkewSeconds: 0 });
+    }, 'EXCEEDS_CEILING');
+    expect(() => {
+      assertMintWithinCeiling(
+        { ...past, expiresAt: now + grant.ceiling.maxSessionTtl },
+        grant,
+        now,
+        { clockSkewSeconds: 0 },
+      );
+    }).not.toThrow();
+  });
+
+  test('expiresAt 0 asks for the longest session the passkey allows', () => {
+    const longest = { ...m(), expiresAt: LONGEST_SESSION };
+    const grant = g();
+    for (const now of [grant.issuedAt, grant.expiresAt - 1]) {
+      expect(() => {
+        assertMintWithinCeiling(longest, grant, now);
+      }).not.toThrow();
+    }
+    // No stated expiry, so no room is needed for clock skew.
+    const short = {
+      ...grant,
+      ceiling: { ...grant.ceiling, maxSessionTtl: 60 },
+    };
+    expect(() => {
+      assertMintWithinCeiling(longest, short, grant.issuedAt);
+    }).not.toThrow();
   });
 });
 

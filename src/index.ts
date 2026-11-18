@@ -69,9 +69,12 @@ export const Session = {
 
 export {
   ALL_LIMITS,
+  CEILING_LIMITS,
   DEFAULT_ENFORCED_LIMITS,
   DEFAULT_LIMIT_CAPS,
+  LONGEST_SESSION,
   MAX_GRANT_SUBACCOUNTS,
+  MINT_HASH_ACCOUNT,
   SessionGrantError,
   UNCAPPED_LIMITS,
 } from './session-typed-data.js';

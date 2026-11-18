@@ -246,18 +246,66 @@ export interface PasskeyGrant {
   readonly expiresAt: number;
 }
 
-/** @experimental */
+/**
+ * What a passkey signs to open one session; its SNIP-12 hash is the WebAuthn
+ * challenge ({@link sessionMintChallenge}).
+ *
+ * It names neither the account nor the passkey, so a client may let the user
+ * pick any passkey they hold (an empty `allowCredentials`). The server finds
+ * the passkey by the assertion's credential id, and its grant names the
+ * account.
+ *
+ * `limits` set to {@link CEILING_LIMITS} (every amount `""`, `markets: []`)
+ * takes the passkey's ceiling: the server applies its value for each limit it
+ * enforces and `"none"` for the rest. Stated limits must fit the ceiling.
+ * `expiresAt` {@link LONGEST_SESSION} (`0`) asks for the longest session the
+ * passkey allows: the ceiling's `maxSessionTtl` from the server's clock, or
+ * until the passkey expires if that is sooner. A stated `expiresAt` later
+ * than the passkey's expiry is accepted, and the session ends with the
+ * passkey.
+ *
+ * @experimental
+ */
 export interface SessionMint {
   readonly paradexChain: string;
   readonly environment: SessionEnvironment;
-  readonly account: string;
-  readonly credentialId: string;
   readonly sessionKey: string;
   readonly scopes: readonly SessionScope[];
   readonly limits: Limits;
   readonly subaccounts: readonly string[];
+  /** From `POST /v2/passkeys/challenge`; the server refuses one it did not issue. */
   readonly nonce: string;
   readonly expiresAt: number;
+}
+
+/** The account a `SessionMint`'s SNIP-12 message hash is taken for: a mint names no account. */
+export const MINT_HASH_ACCOUNT = '0x0';
+
+/** A `SessionMint` `expiresAt` asking for the longest session the passkey allows. */
+export const LONGEST_SESSION = 0;
+
+/**
+ * The limits a `SessionMint` states to take its passkey's ceiling: every
+ * amount empty and no markets.
+ */
+export const CEILING_LIMITS: Limits = {
+  maxOrderNotional: '',
+  maxOpenNotional: '',
+  dailyNotional: '',
+  maxLoss: '',
+  maxLeverage: '',
+  markets: [],
+};
+
+/** Whether `limits` are {@link CEILING_LIMITS}: no limit stated at all. */
+export function isCeilingLimits(limits: Limits): boolean {
+  return (
+    limits != null &&
+    typeof limits === 'object' &&
+    LIMIT_AMOUNTS.every((key) => limits[key] === '') &&
+    Array.isArray(limits.markets) &&
+    limits.markets.length === 0
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -330,8 +378,6 @@ export const SESSION_MINT_EIP712_TYPES: Eip712Types = {
   SessionMint: [
     { name: 'paradexChain', type: 'string' },
     { name: 'environment', type: 'string' },
-    { name: 'account', type: 'string' },
-    { name: 'credentialId', type: 'string' },
     { name: 'sessionKey', type: 'string' },
     { name: 'scopes', type: 'string[]' },
     { name: 'limits', type: 'Limits' },
@@ -418,8 +464,6 @@ export const SESSION_MINT_SNIP12_TYPES: Starknet.TypedData['types'] = {
   SessionMint: [
     { name: 'paradexChain', type: 'shortstring' },
     { name: 'environment', type: 'shortstring' },
-    { name: 'account', type: 'ContractAddress' },
-    { name: 'credentialId', type: 'string' },
     { name: 'sessionKey', type: 'felt' },
     { name: 'scopes', type: 'shortstring*' },
     { name: 'limits', type: 'Limits' },
@@ -574,7 +618,7 @@ function requireNonce(field: string, value: unknown): void {
 function requireUniqueAddresses(
   field: string,
   values: unknown,
-  anchor: string,
+  anchor?: string,
 ): void {
   if (!Array.isArray(values)) throw invalid(field, 'must be an array');
   if (values.length > MAX_GRANT_SUBACCOUNTS) {
@@ -583,7 +627,9 @@ function requireUniqueAddresses(
   const seen = new Set<string>();
   values.forEach((v, i) => {
     requireAddress(`${field}[${i}]`, v);
-    if (v === anchor) throw invalid(field, 'must not include the account');
+    if (anchor != null && v === anchor) {
+      throw invalid(field, 'must not include the account');
+    }
     if (seen.has(v as string)) throw invalid(field, 'has duplicates');
     seen.add(v as string);
   });
@@ -718,14 +764,24 @@ export function validateLimits(
   });
 }
 
-function validateBinding(
-  value: { paradexChain: unknown; environment: unknown; account: unknown },
-  noncePresent: { nonce: unknown },
-): void {
+function validateBinding(value: {
+  paradexChain: unknown;
+  environment: unknown;
+  nonce: unknown;
+}): void {
   requireShortString('paradexChain', value.paradexChain);
   requireEnvironment(value.environment);
+  requireNonce('nonce', value.nonce);
+}
+
+function validateAccountBinding(value: {
+  paradexChain: unknown;
+  environment: unknown;
+  account: unknown;
+  nonce: unknown;
+}): void {
+  validateBinding(value);
   requireAddress('account', value.account);
-  requireNonce('nonce', noncePresent.nonce);
 }
 
 function requireLabel(field: string, value: unknown): void {
@@ -787,7 +843,7 @@ export function validateSessionGrant(
   grant: SessionGrant,
   options: ValidateSessionGrantOptions = {},
 ): void {
-  validateBinding(grant, grant);
+  validateAccountBinding(grant);
   requireCanonicalHex('sessionKey', grant.sessionKey, FELT_PRIME);
   if (grant.sessionKey === '0x0') throw invalid('sessionKey', 'is zero');
   requireLabel('label', grant.label);
@@ -861,7 +917,7 @@ export function validatePasskeyGrant(
   grant: PasskeyGrant,
   options: ValidatePasskeyGrantOptions = {},
 ): void {
-  validateBinding(grant, grant);
+  validateAccountBinding(grant);
   requireAddress('builderAccount', grant.builderAccount, false);
   requireTimestamp('issuedAt', grant.issuedAt);
   requireTimestamp('expiresAt', grant.expiresAt);
@@ -963,19 +1019,25 @@ export function validatePasskeyGrant(
   }
 }
 
+/**
+ * Checks a `SessionMint`'s format. Its limits are either all stated (as for
+ * a grant) or {@link CEILING_LIMITS}; `expiresAt` may be
+ * {@link LONGEST_SESSION}. A mint names no account, so whether its
+ * subaccounts leave out the passkey's account is checked by
+ * {@link assertMintWithinCeiling}.
+ */
 export function validateSessionMint(
   mint: SessionMint,
   options: LimitOptions = {},
 ): void {
-  validateBinding(mint, mint);
-  requireUniqueAddresses('subaccounts', mint.subaccounts, mint.account);
-  if (!BASE64URL_RE.test(mint.credentialId)) {
-    throw invalid('credentialId', 'must be base64url');
-  }
+  validateBinding(mint);
+  requireUniqueAddresses('subaccounts', mint.subaccounts);
   requireCanonicalHex('sessionKey', mint.sessionKey, FELT_PRIME);
   if (mint.sessionKey === '0x0') throw invalid('sessionKey', 'is zero');
   validateScopes(mint.scopes);
-  validateLimits(mint.limits, false, 'limits', options);
+  if (!isCeilingLimits(mint.limits)) {
+    validateLimits(mint.limits, false, 'limits', options);
+  }
   requireTimestamp('expiresAt', mint.expiresAt);
 }
 
@@ -994,14 +1056,31 @@ function exceeds(message: string): SessionGrantError {
 }
 
 /**
- * Checks a `SessionMint` against the `PasskeyGrant` it mints under, as the
- * server does: same binding and scopes within the ceiling. Only limits the
- * server enforces are compared: each must be numeric and at or below a
- * numeric ceiling (anything goes under a `"none"` ceiling), and markets must
- * be within the ceiling's unless it allows `["*"]`. Unenforced limits are
- * `"none"` on the mint and skipped, so passkeys registered with numeric
- * limits keep working. Mints under a builder passkey are refused until the
- * server enforces `maxLoss`, as builder grants are.
+ * Checks a `SessionMint` against the `PasskeyGrant` of the passkey that signs
+ * it, as the server does: same chain and environment, and scopes within the
+ * ceiling. A mint names no account or passkey; the server finds the grant by
+ * the assertion's credential id. Only limits the server enforces are
+ * compared: each must be numeric and at or below a numeric ceiling (anything
+ * goes under a `"none"` ceiling), and markets must be within the ceiling's
+ * unless it allows `["*"]`. Unenforced limits are `"none"` on the mint and
+ * skipped, so passkeys registered with numeric limits keep working. A mint
+ * stating {@link CEILING_LIMITS} takes the ceiling's and fits by definition.
+ * A builder passkey's mints are checked like any other: the server checks
+ * `maxLoss` when the passkey registers, not on its mints. Subaccounts must
+ * not list the passkey's account.
+ *
+ * The check holds only when `grant`'s passkey signs. With an empty
+ * `allowCredentials` the user may pick another passkey, on another account
+ * or with another ceiling, and the server checks the mint against that one.
+ * Pin `allowCredentials` to `grant.passkey.credentialId`, or compare the
+ * account in the server's response with `grant.account` and revoke the
+ * session if they differ.
+ *
+ * Expiry: the passkey must not have expired. `expiresAt`
+ * {@link LONGEST_SESSION} always fits. Otherwise it must be in the future
+ * and at most the ceiling's `maxSessionTtl` from `now` (less the clock-skew
+ * allowance). It may be later than the passkey's expiry: the server then
+ * ends the session when the passkey expires.
  *
  * @experimental
  */
@@ -1029,12 +1108,6 @@ export function assertMintWithinCeiling(
       'mint and passkey grant are for different environments',
     );
   }
-  if (mint.account !== grant.account) {
-    throw exceeds('account: the mint names a different account');
-  }
-  if (mint.credentialId !== grant.passkey.credentialId) {
-    throw exceeds('credentialId: the mint names a different passkey');
-  }
   const { ceiling } = grant;
   for (const scope of mint.scopes) {
     if (!ceiling.scopes.includes(scope)) {
@@ -1042,32 +1115,32 @@ export function assertMintWithinCeiling(
     }
   }
   const enforced = options.enforcedLimits ?? DEFAULT_ENFORCED_LIMITS;
-  if (grant.builderAccount !== NO_BUILDER && !enforced.includes('maxLoss')) {
-    throw new SessionGrantError(
-      'BUILDER_LIMITS_REQUIRED',
-      'limits.maxLoss: builder passkeys need a loss cap, which the server does not enforce yet',
-    );
+  // The ceiling's own limits fit by definition. Limits the server does not
+  // enforce are "none" on the mint and are not compared, so passkeys
+  // registered with numbers keep working.
+  if (!isCeilingLimits(mint.limits)) {
+    for (const key of LIMIT_AMOUNTS) {
+      const cap = ceiling.limits[key];
+      const value = mint.limits[key];
+      if (!enforced.includes(key) || isNoCap(cap)) continue;
+      if (isNoCap(value)) {
+        throw exceeds(`limits.${key}: the ceiling caps it at ${cap}`);
+      }
+      if (new BigNumber(value).isGreaterThan(cap)) {
+        throw exceeds(`limits.${key}: ${value} is above the ceiling ${cap}`);
+      }
+    }
+    const allowedMarkets = enforced.includes('markets')
+      ? ceiling.limits.markets
+      : ALL_MARKETS;
+    for (const market of mint.limits.markets) {
+      if (!allowedMarkets.some((pattern) => marketCovers(pattern, market))) {
+        throw exceeds(`limits.markets: "${market}" is not in the ceiling`);
+      }
+    }
   }
-  // Limits the server does not enforce are "none" on the mint and are not
-  // compared, so passkeys registered with numbers keep working.
-  for (const key of LIMIT_AMOUNTS) {
-    const cap = ceiling.limits[key];
-    const value = mint.limits[key];
-    if (!enforced.includes(key) || isNoCap(cap)) continue;
-    if (isNoCap(value)) {
-      throw exceeds(`limits.${key}: the ceiling caps it at ${cap}`);
-    }
-    if (new BigNumber(value).isGreaterThan(cap)) {
-      throw exceeds(`limits.${key}: ${value} is above the ceiling ${cap}`);
-    }
-  }
-  const allowedMarkets = enforced.includes('markets')
-    ? ceiling.limits.markets
-    : ALL_MARKETS;
-  for (const market of mint.limits.markets) {
-    if (!allowedMarkets.some((pattern) => marketCovers(pattern, market))) {
-      throw exceeds(`limits.markets: "${market}" is not in the ceiling`);
-    }
+  if (mint.subaccounts.includes(grant.account)) {
+    throw invalid('subaccounts', "must not include the passkey's account");
   }
   if (!ceiling.includeFutureSubaccounts) {
     for (const account of mint.subaccounts) {
@@ -1082,6 +1155,9 @@ export function assertMintWithinCeiling(
       `passkey grant expired at ${grant.expiresAt}`,
     );
   }
+  // The server picks the expiry: the ceiling's maxSessionTtl from its own
+  // clock, or the passkey's expiry if that is sooner.
+  if (mint.expiresAt === LONGEST_SESSION) return;
   if (mint.expiresAt <= now) {
     throw new SessionGrantError(
       'GRANT_EXPIRED',
@@ -1095,7 +1171,9 @@ export function assertMintWithinCeiling(
       `ceiling.maxSessionTtl: ${ceiling.maxSessionTtl}s leaves no time after ${skew}s of clock skew`,
     );
   }
-  const latest = Math.min(grant.expiresAt, now + ceiling.maxSessionTtl - skew);
+  // A mint may outlive its passkey: the server ends the session when the
+  // passkey expires.
+  const latest = now + ceiling.maxSessionTtl - skew;
   if (mint.expiresAt > latest) {
     throw exceeds(`expiresAt: must be at or before ${latest}`);
   }
@@ -1436,13 +1514,17 @@ export function hashSnip12(
 
 /**
  * The WebAuthn challenge for a `SessionMint`: the 32-byte SNIP-12 message
- * hash (for `mint.account`), base64url-encoded without padding.
+ * hash, taken for {@link MINT_HASH_ACCOUNT} (`0x0`) since a mint names no
+ * account, base64url-encoded without padding.
  */
 export function sessionMintChallenge(
   mint: SessionMint,
   options: LimitOptions = {},
 ): string {
-  const hash = hashSnip12(buildSessionMintSnip12(mint, options), mint.account);
+  const hash = hashSnip12(
+    buildSessionMintSnip12(mint, options),
+    MINT_HASH_ACCOUNT,
+  );
   const bytes = hexToBytes(hash.slice(2));
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);

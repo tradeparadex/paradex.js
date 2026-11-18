@@ -332,7 +332,11 @@ Grants are checked before signing. These throw a `SessionGrantError` with a `cod
 
 `POST /v2/sessions` caps every grant at 30 days (7 with `trade:block` or `account:settings`). The `api` session type's 180-day cap is for IP-pinned API sessions, which that endpoint does not open; `SessionConnector.open()` always applies the 30-day cap.
 
-`assertMintWithinCeiling` keeps a mint's `expiresAt` the same 5 minutes inside the ceiling's `maxSessionTtl`; pass `clockSkewSeconds: 0` when `now` comes from the server's clock. For the same reason `validatePasskeyGrant` refuses a ceiling whose `maxSessionTtl` is 300 seconds or less, which would leave no time to mint; it takes the same `clockSkewSeconds` option.
+A passkey opens a session by signing a `SessionMint`, whose WebAuthn challenge is `SessionTypedData.mintChallenge(mint)`. A mint names neither the account nor the passkey: the server finds the passkey by the assertion's credential id, so a page may pass an empty `allowCredentials` and let the user pick any passkey they hold. Its SNIP-12 hash is taken for account `0x0` (`MINT_HASH_ACCOUNT`). A mint may state `CEILING_LIMITS` (every amount `""` and `markets: []`) to take its passkey's ceiling, and `expiresAt: LONGEST_SESSION` (`0`) for the longest session the passkey allows. A stated `expiresAt` later than the passkey's own expiry is accepted, and the session ends when the passkey does; one past the ceiling's `maxSessionTtl` from now is refused.
+
+`assertMintWithinCeiling` checks a mint against one `PasskeyGrant`, so it holds only when that grant's passkey signs. With an empty `allowCredentials` the user may pick another passkey, on another account or with another ceiling, and the server checks the mint against that one. A page that pre-checks against a grant, or shows the user limits taken from one, should pin `allowCredentials: [{ type: 'public-key', id: grant.passkey.credentialId }]` (the id decoded from base64url). A page that lets the user pick any passkey must compare the account in the server's response with the one it expected, and revoke the session it just opened if they differ.
+
+`assertMintWithinCeiling` keeps a stated `expiresAt` the same 5 minutes inside the ceiling's `maxSessionTtl`; pass `clockSkewSeconds: 0` when `now` comes from the server's clock. For the same reason `validatePasskeyGrant` refuses a ceiling whose `maxSessionTtl` is 300 seconds or less, which would leave no time to mint; it takes the same `clockSkewSeconds` option.
 
 Pass `limitCaps` to refuse limits above your own ceilings before the wallet is asked. Caps apply only to enforced limits; a cap on a limit the server doesn't enforce refuses every grant.
 
@@ -557,6 +561,7 @@ For a full React application example, see: [paradex-react-example](https://githu
 | `buildGrantSnip12(grant)`             | SNIP-12 rev 1 typed data for a Stark owner       | `TypedData`       |
 | `buildPasskeyGrantEip712/Snip12(...)` | Typed data for `PasskeyGrant`                    | typed data        |
 | `buildMintEip712/Snip12(...)`         | Typed data for `SessionMint`                     | typed data        |
+| `mintChallenge(mint)`                 | WebAuthn challenge for a `SessionMint`           | `string`          |
 | `hashEip712(typedData)`               | EIP-712 digest                                   | `Hex`             |
 | `hashSnip12(typedData, account)`      | SNIP-12 message hash                             | `Hex`             |
 | `validateGrant(grant)`                | Check format rules and lifetime caps             | `void` (throws)   |
