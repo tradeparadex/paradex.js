@@ -83,6 +83,17 @@ export {
   UNCAPPED_LIMITS,
 } from './session-typed-data.js';
 export { SessionConnector } from './session-connector.js';
+export { BUILDER_STATS_WINDOWS, BuilderCodesClient } from './builder-codes.js';
+export type {
+  BuilderApprovalRecord,
+  BuilderApprovalStatus,
+  BuilderCodesClientParams,
+  BuilderLeaderboardRow,
+  BuilderRef,
+  BuilderStats,
+  BuilderStatsWindow,
+  ListBuilderApprovalsOptions,
+} from './builder-codes.js';
 export { DeterminismGuardError, isContractCode } from './determinism-guard.js';
 export { SessionAccounts } from './session-accounts.js';
 export { SessionApiError } from './session-transport.js';
