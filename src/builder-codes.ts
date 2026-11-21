@@ -78,9 +78,11 @@ export interface ListBuilderApprovalsOptions {
  * Reads Builder Codes approvals and stats.
  *
  * Listing and revoking approvals needs the account owner's main-key JWT,
- * passed as `token`; a session or subkey token is refused with 403. The
- * stats and leaderboard are public. The stats endpoints answer 404 while the
- * server has no stats to serve.
+ * passed as `token`; a session or subkey token is refused with 403, and
+ * listing is also refused for an account Paradex has not enabled sessions
+ * for. The stats and leaderboard are public. `fetchStats` answers 404 for a
+ * builder with no recorded stats, and both answer 404 while the server has
+ * no stats to serve at all.
  *
  * @experimental
  */

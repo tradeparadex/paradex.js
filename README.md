@@ -428,10 +428,10 @@ const { approval } = await connector.approveBuilder({
 
 - `listApprovals(token)` lists the account's live approvals, newest first. Pass `{ includeInactive: true }` to add revoked and expired ones, for the history. Each approval has a `status` (`active`, `revoked` or `expired`), a `max_fee_rate`, and `expires_at`, `approved_at` and `revoked_at` in milliseconds.
 - `revokeApproval(token, builderAccount)` revokes an approval. New orders naming that builder are refused at once.
-- Both calls need the account owner's main-key JWT as `token`. A session or subkey token is refused.
+- Both calls need the account owner's main-key JWT as `token`. A session or subkey token is refused. Listing is also refused for an account Paradex has not enabled sessions for.
 - `fetchStats(builderAccount)` returns one row per window (`24h`, `7d`, `30d`, `all`). `fees_paid` is what traders paid the builder in USDC, before any protocol share.
 - `fetchLeaderboard(window)` ranks builders by `fees_paid` over one window, `7d` by default.
-- Stats lag the fills they count. The stats endpoints answer 404 while the server has none to serve.
+- Stats lag the fills they count. `fetchStats` answers 404 for a builder with no recorded stats, and both stats calls answer 404 while the server has none to serve at all.
 
 ```ts
 const builders = new Paradex.BuilderCodesClient({ environment: 'testnet' });
