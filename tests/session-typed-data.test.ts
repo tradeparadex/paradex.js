@@ -808,7 +808,6 @@ describe('PasskeyGrant', () => {
       builderAccount: BUILDER,
       ceiling: {
         ...base.ceiling,
-        // Builder passkeys need a numeric loss cap.
         limits: { ...base.ceiling.limits, maxLoss: '1000' },
         includeFutureSubaccounts: true,
       },
