@@ -927,22 +927,19 @@ export function validateSessionGrant(
 
 /** Longest a builder approval may live after its `issuedAt`. */
 export const BUILDER_APPROVAL_TTL_MAX = 180 * DAY;
-/** Highest `maxFeeRate` the server accepts on a builder approval. */
-export const MAX_BUILDER_FEE_RATE = '0.0025';
+/** Most decimal places a builder's `maxFeeRate` may have. The server sets the highest rate it accepts. */
 const BUILDER_FEE_RATE_PLACES = 8;
 
 /**
  * A builder's fee ceiling, as the server checks it on grants and approvals:
- * above 0, at most 8 decimal places and at most {@link MAX_BUILDER_FEE_RATE}.
+ * above 0 and at most 8 decimal places. The server refuses a rate above its
+ * configured cap.
  */
 function requireBuilderFeeRate(maxFeeRate: unknown): void {
   requireDecimal('builder.maxFeeRate', maxFeeRate, false);
   const rate = new BigNumber(maxFeeRate as string);
-  if (rate.isZero() || rate.isGreaterThan(MAX_BUILDER_FEE_RATE)) {
-    throw invalid(
-      'builder.maxFeeRate',
-      `must be above 0 and at most ${MAX_BUILDER_FEE_RATE}`,
-    );
+  if (rate.isZero()) {
+    throw invalid('builder.maxFeeRate', 'must be above 0');
   }
   if ((rate.decimalPlaces() ?? 0) > BUILDER_FEE_RATE_PLACES) {
     throw invalid(
@@ -954,8 +951,8 @@ function requireBuilderFeeRate(maxFeeRate: unknown): void {
 
 /**
  * Checks a builder approval against the server's rules: a builder other than
- * the account, a `maxFeeRate` above 0 with at most 8 decimal places and at
- * most {@link MAX_BUILDER_FEE_RATE}, and a required `expiresAt` at most
+ * the account, a `maxFeeRate` above 0 with at most 8 decimal places, and a
+ * required `expiresAt` at most
  * {@link BUILDER_APPROVAL_TTL_MAX} after `issuedAt`. Throws a
  * {@link SessionGrantError}.
  *

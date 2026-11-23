@@ -326,7 +326,7 @@ Grants are checked before signing. These throw a `SessionGrantError` with a `cod
 - lifetimes past the server caps, less a 5-minute allowance for the client's clock running ahead (`clockSkewSeconds`; pass 0 when `issuedAt` comes from the server's clock);
 - a limit that is empty, or set while the server doesn't enforce it (`LIMIT_INVALID`);
 - builder grants asking for `trade:block` or `account:settings`;
-- builder grants whose `maxFeeRate` is 0, above `0.0025` or has more than 8 decimal places, or whose builder `expiresAt` is not after `issuedAt`;
+- builder grants whose `maxFeeRate` is 0 or has more than 8 decimal places, or whose builder `expiresAt` is not after `issuedAt`;
 - labels over 64 characters or outside printable ASCII;
 - passkey ceilings with scopes the server refuses: a first-party passkey's ceiling may carry `trade`, `trade:rfq` and `account:settings`, a builder passkey's only `trade`. Ceilings with subaccounts are refused until the server enables them; pass `passkeySubaccounts: true` once it does.
 
@@ -412,7 +412,7 @@ const unsubscribe = await accounts.subscribe('0x...', 'orders.ALL', (data) =>
 
 ### Builder approvals without a session (experimental)
 
-An owner who trades with its main key can approve a builder's fee without opening a session. `SessionConnector.approveBuilder()` reads `issuedAt` from the server's clock (`GET /v1/system/time`), since the server refuses an approval issued in its future. It then has the owner sign a `BuilderApproval` with EIP-712 (one wallet prompt) and sends it to `POST /v2/builders/approvals`, which needs no JWT. `builder.maxFeeRate` must be above 0, have at most 8 decimal places and be at most `0.0025`. The approval expires `ttlSeconds` after `issuedAt`, at most 180 days (the default). Builder approvals carry no session limits, and Stark-key owners can't sign them. The owner revokes an approval with `DELETE /v2/builders/approvals/{builder_account}`.
+An owner who trades with its main key can approve a builder's fee without opening a session. `SessionConnector.approveBuilder()` reads `issuedAt` from the server's clock (`GET /v1/system/time`), since the server refuses an approval issued in its future. It then has the owner sign a `BuilderApproval` with EIP-712 (one wallet prompt) and sends it to `POST /v2/builders/approvals`, which needs no JWT. `builder.maxFeeRate` must be above 0 and have at most 8 decimal places; the server sets the highest rate it accepts. The approval expires `ttlSeconds` after `issuedAt`, at most 180 days (the default). Builder approvals carry no session limits, and Stark-key owners can't sign them. The owner revokes an approval with `DELETE /v2/builders/approvals/{builder_account}`.
 
 ```ts
 const { approval } = await connector.approveBuilder({

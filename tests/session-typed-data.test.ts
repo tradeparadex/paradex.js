@@ -515,7 +515,7 @@ describe('refusals', () => {
     ).not.toThrow();
   });
 
-  test.each(['0', '0.00251', '0.000000001', '0.5'])(
+  test.each(['0', '0.000000001'])(
     'builder grants refuse a maxFeeRate of %s, as the server does',
     (maxFeeRate) => {
       expectCode(
@@ -1973,7 +1973,6 @@ describe('builder approvals', () => {
     [{ builder: { account: '0x0', maxFeeRate: '0.0005' } }, 'INVALID_FIELD'],
     [{ builder: { account: ACCOUNT, maxFeeRate: '0.0005' } }, 'INVALID_FIELD'],
     [{ builder: { account: BUILDER, maxFeeRate: '0' } }, 'INVALID_FIELD'],
-    [{ builder: { account: BUILDER, maxFeeRate: '0.00251' } }, 'INVALID_FIELD'],
     [
       { builder: { account: BUILDER, maxFeeRate: '0.000000001' } },
       'INVALID_FIELD',
@@ -2006,6 +2005,16 @@ describe('builder approvals', () => {
         approvalParams({
           builder: { account: BUILDER, maxFeeRate: '0.00000001' },
         }),
+      ),
+    ).not.toThrow(); // The server sets the highest rate it accepts, so a rate above 25 bps signs.
+    expect(() =>
+      createBuilderApproval(
+        approvalParams({ builder: { account: BUILDER, maxFeeRate: '0.01' } }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      createSessionGrant(
+        params({ builder: { account: BUILDER, maxFeeRate: '0.01' } }),
       ),
     ).not.toThrow();
   });

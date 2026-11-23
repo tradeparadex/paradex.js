@@ -867,7 +867,7 @@ describe('SessionConnector.approveBuilder', () => {
     const error = await connector
       .approveBuilder({
         account: MAIN,
-        builder: { account: BUILDER_ACCOUNT, maxFeeRate: '0.003' },
+        builder: { account: BUILDER_ACCOUNT, maxFeeRate: '0.000000001' },
       })
       .catch((e: unknown) => e);
     expectCode(error, 'INVALID_FIELD');
