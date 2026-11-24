@@ -1981,7 +1981,10 @@ describe('builder approvals', () => {
       { builder: { account: BUILDER, maxFeeRate: '0.000500000' } },
       'INVALID_FIELD',
     ],
-    [{ expiresAt: T0 }, 'INVALID_FIELD'],
+    [
+      { builder: { account: BUILDER, maxFeeRate: '0.0005', expiresAt: T0 } },
+      'INVALID_FIELD',
+    ],
     [{ ttlSeconds: BUILDER_APPROVAL_TTL_MAX + 1 }, 'TTL_EXCEEDED'],
     [{ subaccounts: [ACCOUNT] }, 'INVALID_FIELD'],
   ] as Array<[Partial<CreateBuilderApprovalParams>, string]>)(
@@ -2017,6 +2020,17 @@ describe('builder approvals', () => {
         params({ builder: { account: BUILDER, maxFeeRate: '0.01' } }),
       ),
     ).not.toThrow();
+  });
+
+  test('takes builder.expiresAt, so a grant builder passed in keeps its expiry', () => {
+    const builder = {
+      account: BUILDER,
+      maxFeeRate: '0.0005',
+      expiresAt: T0 + 3600,
+    };
+    expect(
+      createBuilderApproval(approvalParams({ builder })).builder.expiresAt,
+    ).toBe(T0 + 3600);
   });
 
   test('an expiresAt of 0 is refused, not taken to follow a session', () => {

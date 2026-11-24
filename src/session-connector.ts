@@ -374,10 +374,10 @@ export class SessionConnector {
    * The owner revokes it with `DELETE /v2/builders/approvals/{builder_account}`.
    *
    * `issuedAt` is the server's time in whole seconds, and the server refuses
-   * an approval issued at or before the builder's last revoke with
-   * `BUILDER_APPROVAL_STALE`. So to approve a builder again after revoking
-   * it, wait for the next server second, or the owner signs an approval that
-   * is refused.
+   * an approval issued in the same second as the builder's last revoke or
+   * approval (including one a session grant made) with
+   * `BUILDER_APPROVAL_STALE`. So after either, wait for the next server
+   * second, or the owner signs an approval that is refused.
    *
    * @experimental
    */

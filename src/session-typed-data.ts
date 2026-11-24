@@ -1376,11 +1376,17 @@ export interface CreateBuilderApprovalParams {
   readonly paradexChain: string;
   readonly environment: SessionEnvironment;
   readonly account: string;
-  readonly builder: { readonly account: string; readonly maxFeeRate: string };
+  /**
+   * The builder and its fee cap. `expiresAt` (seconds) defaults to
+   * `issuedAt + ttlSeconds`, as on a grant's builder.
+   */
+  readonly builder: {
+    readonly account: string;
+    readonly maxFeeRate: string;
+    readonly expiresAt?: number;
+  };
   /** Seconds, from the server's clock (`GET /v1/system/time`). */
   readonly issuedAt: number;
-  /** Seconds. Defaults to `issuedAt + ttlSeconds`. */
-  readonly expiresAt?: number;
   /** Defaults to {@link BUILDER_APPROVAL_TTL_MAX}. */
   readonly ttlSeconds?: number;
   readonly subaccounts?: readonly string[];
@@ -1403,7 +1409,7 @@ export function createBuilderApproval(
       account: canonicalFelt(params.builder.account),
       maxFeeRate: params.builder.maxFeeRate,
       expiresAt:
-        params.expiresAt ??
+        params.builder.expiresAt ??
         params.issuedAt + (params.ttlSeconds ?? BUILDER_APPROVAL_TTL_MAX),
     },
     subaccounts: (params.subaccounts ?? []).map((a) => canonicalFelt(a)),
