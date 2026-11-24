@@ -1,3 +1,5 @@
+import BigNumber from 'bignumber.js';
+
 import {
   buildAuthTypedData,
   buildOrderTypedData,
@@ -301,6 +303,17 @@ export class SessionAccounts {
         signature_timestamp: timestamp,
         ...(order.clientId != null ? { client_id: order.clientId } : {}),
         ...(order.reduceOnly === true ? { flags: ['REDUCE_ONLY'] } : {}),
+        ...(order.builder != null
+          ? {
+              builder: order.builder,
+              // Canonical spelling ("0.000500000" -> "0.0005"): the server
+              // refuses more than 8 decimal places, and the signature covers
+              // the scaled value, so either spelling signs the same.
+              builder_fee_rate: new BigNumber(
+                order.builderFeeRate ?? '',
+              ).toFixed(),
+            }
+          : {}),
       },
     });
   }

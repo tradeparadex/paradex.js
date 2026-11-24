@@ -92,6 +92,7 @@ export type SessionGrantErrorCode =
   | 'UNKNOWN_SCOPE'
   | 'RESERVED_SCOPE'
   | 'TTL_EXCEEDED'
+  /** @deprecated No longer thrown: builder grants follow the normal limit rules. */
   | 'BUILDER_LIMITS_REQUIRED'
   | 'BUILDER_REQUIRES_EIP712'
   | 'GRANT_EXPIRED'
@@ -247,6 +248,25 @@ export interface PasskeyGrant {
 }
 
 /**
+ * An EVM owner's approval of a builder's fee, outside any session grant.
+ * Signed with EIP-712 only and registered with
+ * `POST /v2/builders/approvals`.
+ *
+ * @experimental
+ */
+export interface BuilderApproval {
+  readonly paradexChain: string;
+  readonly environment: SessionEnvironment;
+  readonly account: string;
+  /** `expiresAt` is required here: there is no session to follow. */
+  readonly builder: Builder;
+  readonly subaccounts: readonly string[];
+  readonly nonce: string;
+  /** Seconds, by the server's clock: the server refuses one in its future. */
+  readonly issuedAt: number;
+}
+
+/**
  * What a passkey signs to open one session; its SNIP-12 hash is the WebAuthn
  * challenge ({@link sessionMintChallenge}).
  *
@@ -321,6 +341,12 @@ const EIP712_LIMITS = [
   { name: 'markets', type: 'string[]' },
 ] as const;
 
+const EIP712_BUILDER = [
+  { name: 'account', type: 'string' },
+  { name: 'maxFeeRate', type: 'string' },
+  { name: 'expiresAt', type: 'uint64' },
+] as const;
+
 export const SESSION_GRANT_EIP712_TYPES: Eip712Types = {
   SessionGrant: [
     { name: 'paradexChain', type: 'string' },
@@ -337,11 +363,20 @@ export const SESSION_GRANT_EIP712_TYPES: Eip712Types = {
     { name: 'expiresAt', type: 'uint64' },
   ],
   Limits: EIP712_LIMITS,
-  Builder: [
+  Builder: EIP712_BUILDER,
+};
+
+export const BUILDER_APPROVAL_EIP712_TYPES: Eip712Types = {
+  BuilderApproval: [
+    { name: 'paradexChain', type: 'string' },
+    { name: 'environment', type: 'string' },
     { name: 'account', type: 'string' },
-    { name: 'maxFeeRate', type: 'string' },
-    { name: 'expiresAt', type: 'uint64' },
+    { name: 'builder', type: 'Builder' },
+    { name: 'subaccounts', type: 'string[]' },
+    { name: 'nonce', type: 'string' },
+    { name: 'issuedAt', type: 'uint64' },
   ],
+  Builder: EIP712_BUILDER,
 };
 
 export const PASSKEY_GRANT_EIP712_TYPES: Eip712Types = {
@@ -672,12 +707,13 @@ function isNoCap(value: string): boolean {
  * non-empty list, or `["*"]` alone. A limit the server does not enforce
  * must be `"none"` (`markets`: `["*"]`).
  *
- * @param builderGrant builder grants must cap `maxLoss` with a number, so
- * they are refused while the server does not enforce `maxLoss`.
+ * Builder grants and builder passkeys follow the same rules as any other grant.
+ *
+ * @param _builderGrant ignored; kept so existing callers still compile.
  */
 export function validateLimits(
   limits: Limits,
-  builderGrant: boolean,
+  _builderGrant: boolean,
   field = 'limits',
   options: LimitOptions = {},
 ): void {
@@ -685,12 +721,6 @@ export function validateLimits(
   const enforced = options.enforcedLimits ?? DEFAULT_ENFORCED_LIMITS;
   if (limits == null || typeof limits !== 'object') {
     throw invalid(field, 'is required');
-  }
-  if (builderGrant && !enforced.includes('maxLoss')) {
-    throw new SessionGrantError(
-      'BUILDER_LIMITS_REQUIRED',
-      `${field}.maxLoss: builder grants need a loss cap, which the server does not enforce yet`,
-    );
   }
   for (const key of LIMIT_AMOUNTS) {
     const value: unknown = limits[key];
@@ -702,14 +732,7 @@ export function validateLimits(
     }
     if (typeof value !== 'string')
       throw invalid(`${field}.${key}`, 'must be a string');
-    if (isNoCap(value)) {
-      if (key === 'maxLoss' && builderGrant) {
-        throw new SessionGrantError(
-          'BUILDER_LIMITS_REQUIRED',
-          `${field}.maxLoss: builder grants must cap losses with a number`,
-        );
-      }
-    } else {
+    if (!isNoCap(value)) {
       requireDecimal(`${field}.${key}`, value, false);
       if (new BigNumber(value).isZero()) {
         throw invalid(`${field}.${key}`, 'must be positive');
@@ -892,10 +915,72 @@ export function validateSessionGrant(
   if (hasBuilder && builder.account === grant.account) {
     throw invalid('builder.account', 'must not be the granting account');
   }
+  if (hasBuilder) requireBuilderFeeRate(builder.maxFeeRate);
   if (builder.expiresAt > grant.expiresAt) {
     throw invalid('builder.expiresAt', 'must not outlive the session');
   }
+  if (builder.expiresAt !== 0 && builder.expiresAt <= grant.issuedAt) {
+    throw invalid('builder.expiresAt', 'must be after issuedAt');
+  }
   validateLimits(grant.limits, hasBuilder, 'limits', options);
+}
+
+/** Longest a builder approval may live after its `issuedAt`. */
+export const BUILDER_APPROVAL_TTL_MAX = 180 * DAY;
+/** Most decimal places a builder's `maxFeeRate` may have. The server sets the highest rate it accepts. */
+const BUILDER_FEE_RATE_PLACES = 8;
+
+/**
+ * A builder's fee ceiling, as the server checks it on grants and approvals:
+ * above 0 and at most 8 decimal places. The server refuses a rate above its
+ * configured cap.
+ */
+function requireBuilderFeeRate(maxFeeRate: unknown): void {
+  requireDecimal('builder.maxFeeRate', maxFeeRate, false);
+  const rate = new BigNumber(maxFeeRate as string);
+  if (rate.isZero()) {
+    throw invalid('builder.maxFeeRate', 'must be above 0');
+  }
+  if ((rate.decimalPlaces() ?? 0) > BUILDER_FEE_RATE_PLACES) {
+    throw invalid(
+      'builder.maxFeeRate',
+      `must have at most ${BUILDER_FEE_RATE_PLACES} decimal places`,
+    );
+  }
+}
+
+/**
+ * Checks a builder approval against the server's rules: a builder other than
+ * the account, a `maxFeeRate` above 0 with at most 8 decimal places, and a
+ * required `expiresAt` at most
+ * {@link BUILDER_APPROVAL_TTL_MAX} after `issuedAt`. Throws a
+ * {@link SessionGrantError}.
+ *
+ * @experimental
+ */
+export function validateBuilderApproval(approval: BuilderApproval): void {
+  validateAccountBinding(approval);
+  requireUniqueAddresses('subaccounts', approval.subaccounts, approval.account);
+  requireTimestamp('issuedAt', approval.issuedAt);
+  const builder = approval.builder;
+  if (builder == null || typeof builder !== 'object') {
+    throw invalid('builder', 'is required');
+  }
+  requireAddress('builder.account', builder.account);
+  if (builder.account === approval.account) {
+    throw invalid('builder.account', 'must not be the approving account');
+  }
+  requireBuilderFeeRate(builder.maxFeeRate);
+  requireTimestamp('builder.expiresAt', builder.expiresAt);
+  if (builder.expiresAt <= approval.issuedAt) {
+    throw invalid('builder.expiresAt', 'must be after issuedAt');
+  }
+  if (builder.expiresAt - approval.issuedAt > BUILDER_APPROVAL_TTL_MAX) {
+    throw new SessionGrantError(
+      'TTL_EXCEEDED',
+      `builder.expiresAt: an approval lives at most ${BUILDER_APPROVAL_TTL_MAX}s after issuedAt`,
+    );
+  }
 }
 
 export interface ValidatePasskeyGrantOptions extends LimitOptions {
@@ -1065,9 +1150,8 @@ function exceeds(message: string): SessionGrantError {
  * unless it allows `["*"]`. Unenforced limits are `"none"` on the mint and
  * skipped, so passkeys registered with numeric limits keep working. A mint
  * stating {@link CEILING_LIMITS} takes the ceiling's and fits by definition.
- * A builder passkey's mints are checked like any other: the server checks
- * `maxLoss` when the passkey registers, not on its mints. Subaccounts must
- * not list the passkey's account.
+ * A builder passkey's mints are checked like any other. Subaccounts must not
+ * list the passkey's account.
  *
  * The check holds only when `grant`'s passkey signs. With an empty
  * `allowCredentials` the user may pick another passkey, on another account
@@ -1288,6 +1372,57 @@ export function createSessionGrant(
   return grant;
 }
 
+export interface CreateBuilderApprovalParams {
+  readonly paradexChain: string;
+  readonly environment: SessionEnvironment;
+  readonly account: string;
+  /**
+   * The builder and its fee cap. `expiresAt` (seconds) defaults to
+   * `issuedAt + ttlSeconds`, as on a grant's builder.
+   */
+  readonly builder: {
+    readonly account: string;
+    readonly maxFeeRate: string;
+    readonly expiresAt?: number;
+  };
+  /** Seconds, from the server's clock (`GET /v1/system/time`). */
+  readonly issuedAt: number;
+  /** Defaults to {@link BUILDER_APPROVAL_TTL_MAX}. */
+  readonly ttlSeconds?: number;
+  readonly subaccounts?: readonly string[];
+  readonly nonce?: string;
+}
+
+/**
+ * Builds a canonical, validated {@link BuilderApproval}.
+ *
+ * @experimental
+ */
+export function createBuilderApproval(
+  params: CreateBuilderApprovalParams,
+): BuilderApproval {
+  const approval: BuilderApproval = {
+    paradexChain: params.paradexChain,
+    environment: params.environment,
+    account: canonicalFelt(params.account),
+    builder: {
+      account: canonicalFelt(params.builder.account),
+      maxFeeRate: params.builder.maxFeeRate,
+      expiresAt:
+        params.builder.expiresAt ??
+        params.issuedAt + (params.ttlSeconds ?? BUILDER_APPROVAL_TTL_MAX),
+    },
+    subaccounts: (params.subaccounts ?? []).map((a) => canonicalFelt(a)),
+    nonce:
+      params.nonce != null
+        ? canonicalFelt(params.nonce)
+        : generateSessionNonce(),
+    issuedAt: params.issuedAt,
+  };
+  validateBuilderApproval(approval);
+  return approval;
+}
+
 /** Every account a grant reaches: the anchor first, then its sub-accounts. */
 export function grantAccounts(
   grant: Pick<SessionGrant, 'account' | 'subaccounts'>,
@@ -1492,6 +1627,26 @@ export function buildSessionMintSnip12(
     SESSION_MINT_SNIP12_TYPES,
     mint,
     mint.paradexChain,
+  );
+}
+
+/**
+ * EIP-712 `BuilderApproval`, signed by the account's EVM owner on the
+ * wallet's current chain. There is no SNIP-12 form: the server accepts
+ * builder approvals from EVM owners only.
+ *
+ * @experimental
+ */
+export function buildBuilderApprovalEip712(
+  approval: BuilderApproval,
+  signatureChainId: number | string | bigint,
+): Eip712TypedData {
+  validateBuilderApproval(approval);
+  return eip712(
+    'BuilderApproval',
+    BUILDER_APPROVAL_EIP712_TYPES,
+    approval,
+    signatureChainId,
   );
 }
 

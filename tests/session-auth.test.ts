@@ -6,6 +6,7 @@ import {
   jwtExpiry,
   sessionAuthPath,
   toChainQuantums,
+  type SessionOrder,
 } from '../src/session-auth';
 import {
   defaultApiUrl,
@@ -200,5 +201,120 @@ describe('session transport', () => {
     expect(() => defaultApiUrl('evil.example/x' as 'testnet')).toThrow(
       /Invalid environment/,
     );
+  });
+});
+
+describe('BuilderOrder', () => {
+  // The server's reference vector: this order, signed for this account on
+  // PRIVATE_SN_POTC_GOERLI, has this hash.
+  const chain = 'PRIVATE_SN_POTC_GOERLI';
+  const account =
+    '0x4a09444a934577ebf338aa6473c7b0df084158ed03408c07057cc2ecbbb5938';
+  const referenceHash =
+    '0x4c5d000ffcedffd12468ad34f2c296e4daf028db5c4c7001ab93ee392664807';
+  const order: SessionOrder = {
+    market: 'BTC-USD-PERP',
+    side: 'SELL',
+    type: 'LIMIT',
+    size: '0.4543',
+    price: '28981',
+    builder: '0x5b0b',
+    builderFeeRate: '0.0005',
+  };
+  const timestamp = 1684815490129;
+  const hash = (o: SessionOrder): string =>
+    Starknet.typedData.getMessageHash(
+      buildOrderTypedData(chain, o, timestamp),
+      account,
+    );
+
+  test('matches the pinned reference hash', () => {
+    expect(hash(order)).toBe(referenceHash);
+  });
+
+  test('matches a field-by-field SNIP-12 rev0 hash', () => {
+    const { computePedersenHashOnElements: pedersen } = Starknet.hash;
+    const short = (s: string): string =>
+      Starknet.shortString.encodeShortString(s);
+    const typeHash = Starknet.hash.getSelectorFromName(
+      'BuilderOrder(timestamp:felt,market:felt,side:felt,orderType:felt,size:felt,price:felt,builder:felt,builderFeeRate:felt)',
+    );
+    const structHash = pedersen([
+      typeHash,
+      timestamp,
+      short('BTC-USD-PERP'),
+      2, // SELL
+      short('LIMIT'),
+      45430000, // 0.4543 at 8 decimals
+      2898100000000, // 28981 at 8 decimals
+      '0x5b0b',
+      50000, // 0.0005 at 8 decimals
+    ]);
+    const domainHash = pedersen([
+      Starknet.hash.getSelectorFromName(
+        'StarkNetDomain(name:felt,chainId:felt,version:felt)',
+      ),
+      short('Paradex'),
+      short(chain),
+      1,
+    ]);
+    const expected = pedersen([
+      short('StarkNet Message'),
+      domainHash,
+      account,
+      structHash,
+    ]);
+    expect(BigInt(hash(order))).toBe(BigInt(expected));
+  });
+
+  test('signs the builder and the rate, not their spelling', () => {
+    const base = hash(order);
+    expect(
+      hash({ ...order, builder: '0x0000005B0B', builderFeeRate: '0.00050' }),
+    ).toBe(base);
+    expect(hash({ ...order, builder: '0x5b0c' })).not.toBe(base);
+    expect(hash({ ...order, builderFeeRate: '0.0006' })).not.toBe(base);
+  });
+
+  test('appends builder and builderFeeRate to the Order fields', () => {
+    const td = buildOrderTypedData(chain, order, timestamp);
+    expect(td.primaryType).toBe('BuilderOrder');
+    expect(td.types.BuilderOrder?.map((t) => t.name)).toEqual([
+      'timestamp',
+      'market',
+      'side',
+      'orderType',
+      'size',
+      'price',
+      'builder',
+      'builderFeeRate',
+    ]);
+    expect(td.message).toMatchObject({
+      builder: '0x5b0b',
+      builderFeeRate: '50000',
+    });
+  });
+
+  test('an order without a builder keeps the Order hash', () => {
+    const { builder: _b, builderFeeRate: _r, ...plain } = order;
+    const td = buildOrderTypedData(chain, plain, timestamp);
+    expect(td.primaryType).toBe('Order');
+    expect(td.message).not.toHaveProperty('builder');
+    expect(hash(plain)).not.toBe(referenceHash);
+  });
+
+  test.each<[Partial<SessionOrder>, RegExp]>([
+    [{ builderFeeRate: undefined }, /together/],
+    [{ builder: undefined }, /together/],
+    [{ builder: '0x0' }, /non-zero/],
+    [{ builder: '5b0b' }, /non-zero/],
+    [{ builder: `0x${'1'.repeat(65)}` }, /non-zero/],
+    [{ builderFeeRate: '0' }, /above 0/],
+    [{ builderFeeRate: '-0.0005' }, /builderFeeRate/],
+    [{ builderFeeRate: '0.000000001' }, /8 decimal places/],
+  ])('refuses %p', (override, error) => {
+    expect(() =>
+      buildOrderTypedData(chain, { ...order, ...override }, timestamp),
+    ).toThrow(error);
   });
 });

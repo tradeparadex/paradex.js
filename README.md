@@ -326,7 +326,7 @@ Grants are checked before signing. These throw a `SessionGrantError` with a `cod
 - lifetimes past the server caps, less a 5-minute allowance for the client's clock running ahead (`clockSkewSeconds`; pass 0 when `issuedAt` comes from the server's clock);
 - a limit that is empty, or set while the server doesn't enforce it (`LIMIT_INVALID`);
 - builder grants asking for `trade:block` or `account:settings`;
-- builder grants without a numeric `maxLoss`. Builder grants need a loss cap, so they're refused until the server enforces `maxLoss`.
+- builder grants whose `maxFeeRate` is 0 or has more than 8 decimal places, or whose builder `expiresAt` is not after `issuedAt`;
 - labels over 64 characters or outside printable ASCII;
 - passkey ceilings with scopes the server refuses: a first-party passkey's ceiling may carry `trade`, `trade:rfq` and `account:settings`, a builder passkey's only `trade`. Ceilings with subaccounts are refused until the server enables them; pass `passkeySubaccounts: true` once it does.
 
@@ -391,12 +391,36 @@ await accounts.placeOrder('0x...', {
   size: '0.01',
   price: '60000',
 });
+// An order attributed to a builder the account approved (for example in a
+// grant's `builder`) pays it builderFeeRate of each fill's notional in USDC.
+// It is signed as BuilderOrder rather than Order.
+await accounts.placeOrder('0x...', {
+  market: 'BTC-USD-PERP',
+  side: 'BUY',
+  type: 'LIMIT',
+  size: '0.01',
+  price: '60000',
+  builder: '0x...',
+  builderFeeRate: '0.0005', // 5 bps
+});
 const unsubscribe = await accounts.subscribe('0x...', 'orders.ALL', (data) =>
   console.log(data),
 );
 ```
 
 > `/v2/sessions` is experimental; its request and response shapes may change.
+
+### Builder approvals without a session (experimental)
+
+An owner who trades with its main key can approve a builder's fee without opening a session. `SessionConnector.approveBuilder()` reads `issuedAt` from the server's clock (`GET /v1/system/time`), since the server refuses an approval issued in its future. It then has the owner sign a `BuilderApproval` with EIP-712 (one wallet prompt) and sends it to `POST /v2/builders/approvals`, which needs no JWT. `builder.maxFeeRate` must be above 0 and have at most 8 decimal places; the server sets the highest rate it accepts. The approval expires `ttlSeconds` after `issuedAt`, at most 180 days (the default). Builder approvals carry no session limits, and Stark-key owners can't sign them. The owner revokes an approval with `DELETE /v2/builders/approvals/{builder_account}`. `issuedAt` is in whole seconds, and the server refuses an approval issued in the same second as the builder's last revoke or approval (including one a session grant made) with `BUILDER_APPROVAL_STALE`, so after either, wait for the next server second.
+
+```ts
+const { approval } = await connector.approveBuilder({
+  account: '0x<account>',
+  builder: { account: '0x<builder account>', maxFeeRate: '0.0005' },
+  ttlSeconds: 30 * 24 * 3600,
+});
+```
 
 ## Best Practices
 
@@ -557,6 +581,8 @@ For a full React application example, see: [paradex-react-example](https://githu
 | Method                                | Description                                      | Returns           |
 | ------------------------------------- | ------------------------------------------------ | ----------------- |
 | `createGrant(params)`                 | Build a canonical, validated `SessionGrant`      | `SessionGrant`    |
+| `createBuilderApproval(params)`       | Build a canonical, validated `BuilderApproval`   | `BuilderApproval` |
+| `buildBuilderApprovalEip712(a, id)`   | EIP-712 typed data for a `BuilderApproval`       | `Eip712TypedData` |
 | `buildGrantEip712(grant, chainId)`    | EIP-712 typed data for an EVM wallet             | `Eip712TypedData` |
 | `buildGrantSnip12(grant)`             | SNIP-12 rev 1 typed data for a Stark owner       | `TypedData`       |
 | `buildPasskeyGrantEip712/Snip12(...)` | Typed data for `PasskeyGrant`                    | typed data        |

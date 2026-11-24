@@ -13,8 +13,10 @@ import {
   type HttpResponse,
 } from '../src/session-transport';
 import {
+  buildBuilderApprovalEip712,
   buildSessionGrantEip712,
   SessionGrantError,
+  type BuilderApproval,
   type SessionGrant,
 } from '../src/session-typed-data';
 
@@ -798,4 +800,131 @@ describe('SessionConnector.restore', () => {
       expect(await storage.list()).toEqual([]);
     },
   );
+});
+
+describe('SessionConnector.approveBuilder', () => {
+  const BUILDER_ACCOUNT = '0xb1';
+
+  function approvalServer(req: HttpRequest): { status: number; body: unknown } {
+    if (req.method === 'GET') {
+      return { status: 200, body: { server_time: String(T0 * 1000 + 999) } };
+    }
+    return { status: 201, body: { builder: { account: BUILDER_ACCOUNT } } };
+  }
+
+  test('stamps issuedAt from the server clock, has the owner sign, and posts the approval', async () => {
+    const { wallet, sign, transport, connector } = setup({
+      respond: approvalServer,
+    });
+    const result = await connector.approveBuilder({
+      account: MAIN,
+      builder: { account: BUILDER_ACCOUNT, maxFeeRate: '0.0005' },
+      ttlSeconds: 86400,
+    });
+
+    expect(sign).toHaveBeenCalledTimes(1);
+    const [time, post] = transport.mock.calls.map(([req]) => req);
+    expect(time).toMatchObject({
+      method: 'GET',
+      url: 'https://api.testnet.paradex.trade/v1/system/time',
+    });
+    expect(post).toMatchObject({
+      method: 'POST',
+      url: 'https://api.testnet.paradex.trade/v2/builders/approvals',
+    });
+    expect(post?.headers).not.toHaveProperty('Authorization');
+    const body = JSON.parse(post?.body ?? '{}') as {
+      approval: BuilderApproval;
+      signature: string;
+      signature_type: string;
+      signature_chain_id: number;
+    };
+    expect(Object.keys(body).sort()).toEqual([
+      'approval',
+      'signature',
+      'signature_chain_id',
+      'signature_type',
+    ]);
+    expect(body.approval.issuedAt).toBe(T0);
+    expect(body.approval.builder).toEqual({
+      account: BUILDER_ACCOUNT,
+      maxFeeRate: '0.0005',
+      expiresAt: T0 + 86400,
+    });
+    expect(body.approval.environment).toBe('testnet');
+    expect(body.signature_type).toBe('eip712');
+    expect(body.signature_chain_id).toBe(42161);
+    const digest = hashTypedData(
+      buildBuilderApprovalEip712(body.approval, 42161),
+    );
+    expect(ethers.recoverAddress(digest, body.signature)).toBe(wallet.address);
+    expect(result.approval).toEqual(body.approval);
+    expect(result.response).toEqual({ builder: { account: BUILDER_ACCOUNT } });
+  });
+
+  test('refuses an invalid approval before the owner signs', async () => {
+    const { sign, transport, connector } = setup({ respond: approvalServer });
+    const error = await connector
+      .approveBuilder({
+        account: MAIN,
+        builder: { account: BUILDER_ACCOUNT, maxFeeRate: '0.000000001' },
+      })
+      .catch((e: unknown) => e);
+    expectCode(error, 'INVALID_FIELD');
+    expect(sign).not.toHaveBeenCalled();
+    expect(transport.mock.calls.map(([req]) => req.method)).toEqual(['GET']);
+  });
+
+  test('refuses a subaccount the owner wallet does not own before it signs', async () => {
+    const { sign, transport, connector } = setup({
+      ownerAddress: '0x' + '11'.repeat(20),
+      respond: (req) =>
+        req.url.includes('/v2/onboarding/subaccounts')
+          ? { status: 200, body: { results: [] } }
+          : approvalServer(req),
+    });
+    const error = await connector
+      .approveBuilder({
+        account: MAIN,
+        builder: { account: BUILDER_ACCOUNT, maxFeeRate: '0.0005' },
+        subaccounts: [SUB],
+      })
+      .catch((e: unknown) => e);
+    expectCode(error, 'ACCOUNT_NOT_ELIGIBLE');
+    expect(sign).not.toHaveBeenCalled();
+    expect(transport.mock.calls.some(([req]) => req.method === 'POST')).toBe(
+      false,
+    );
+  });
+
+  test('surfaces a server refusal', async () => {
+    const { connector } = setup({
+      respond: (req) =>
+        req.method === 'GET'
+          ? approvalServer(req)
+          : { status: 400, body: { error: 'INVALID_BUILDER', message: 'no' } },
+    });
+    const error = await connector
+      .approveBuilder({
+        account: MAIN,
+        builder: { account: BUILDER_ACCOUNT, maxFeeRate: '0.0005' },
+      })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SessionApiError);
+    expect((error as SessionApiError).code).toBe('INVALID_BUILDER');
+  });
+
+  test('refuses a server time it cannot read', async () => {
+    const { sign, connector } = setup({
+      respond: () => ({ status: 200, body: {} }),
+    });
+    const error = await connector
+      .approveBuilder({
+        account: MAIN,
+        builder: { account: BUILDER_ACCOUNT, maxFeeRate: '0.0005' },
+      })
+      .catch((e: unknown) => e);
+    expect((error as SessionApiError).code).toBe('INVALID_RESPONSE');
+    expect(sign).not.toHaveBeenCalled();
+  });
 });

@@ -10,6 +10,8 @@ import {
   ALL_LIMITS,
   assertGrantActive,
   assertMintWithinCeiling,
+  buildBuilderApprovalEip712,
+  BUILDER_APPROVAL_TTL_MAX,
   buildPasskeyGrantEip712,
   buildPasskeyGrantSnip12,
   buildSessionGrantEip712,
@@ -18,6 +20,7 @@ import {
   buildSessionMintSnip12,
   canonicalFelt,
   CEILING_LIMITS,
+  createBuilderApproval,
   createSessionGrant,
   DEFAULT_ENFORCED_LIMITS,
   DEFAULT_LIMIT_CAPS,
@@ -36,9 +39,12 @@ import {
   sessionMintChallenge,
   summarizeGrant,
   UNCAPPED_LIMITS,
+  validateBuilderApproval,
   validatePasskeyGrant,
   validateSessionGrant,
   validateSessionMint,
+  type BuilderApproval,
+  type CreateBuilderApprovalParams,
   type CreateSessionGrantParams,
   type Limits,
   type PasskeyGrant,
@@ -54,7 +60,11 @@ const bytesToHex = (b: Uint8Array): string =>
 
 interface Vector {
   readonly name: string;
-  readonly primaryType: 'SessionGrant' | 'PasskeyGrant' | 'SessionMint';
+  readonly primaryType:
+    | 'SessionGrant'
+    | 'PasskeyGrant'
+    | 'SessionMint'
+    | 'BuilderApproval';
   readonly signer: 'eip191' | 'stark' | 'passkey';
   /** A `SessionMint` names no account. */
   readonly message: { readonly account?: string };
@@ -106,6 +116,11 @@ function buildEip712(v: Vector, chainId: number): Eip712TypedData {
         chainId,
         VECTOR_OPTIONS,
       );
+    case 'BuilderApproval':
+      return buildBuilderApprovalEip712(
+        v.message as unknown as BuilderApproval,
+        chainId,
+      );
   }
 }
 
@@ -124,6 +139,8 @@ function buildSnip12(v: Vector): Starknet.TypedData {
       return buildPasskeyGrantSnip12(v.message as PasskeyGrant, VECTOR_OPTIONS);
     case 'SessionMint':
       return buildSessionMintSnip12(v.message as SessionMint, VECTOR_OPTIONS);
+    case 'BuilderApproval':
+      throw new Error('builder approvals are EIP-712 only');
   }
 }
 
@@ -218,8 +235,9 @@ describe('golden vectors', () => {
     vectors
       .filter(
         (v) =>
-          v.primaryType !== 'SessionGrant' ||
-          (v.message as SessionGrant).builder.account === '0x0',
+          v.primaryType !== 'BuilderApproval' &&
+          (v.primaryType !== 'SessionGrant' ||
+            (v.message as SessionGrant).builder.account === '0x0'),
       )
       .map((v) => [v.name, v]),
   )('%s: SNIP-12 rev 1 types and message hash', (_name, v) => {
@@ -480,21 +498,55 @@ describe('refusals', () => {
     },
   );
 
-  test('builder grants must state every amount; empty markets mean the default', () => {
+  test('builder grants may state any amount as "none"', () => {
     const builder = { account: BUILDER, maxFeeRate: '0.0005' };
     expect(() =>
       createSessionGrant(params({ builder, limits: FULL_LIMITS })),
     ).not.toThrow();
-    expectCode(
-      () =>
-        createSessionGrant(
-          params({ builder, limits: { ...FULL_LIMITS, maxLoss: 'none' } }),
-        ),
-      'BUILDER_LIMITS_REQUIRED',
-    );
+    expect(() =>
+      createSessionGrant(
+        params({ builder, limits: { ...FULL_LIMITS, maxLoss: 'none' } }),
+      ),
+    ).not.toThrow();
     expect(() =>
       createSessionGrant(
         params({ builder, limits: { ...FULL_LIMITS, maxLeverage: 'none' } }),
+      ),
+    ).not.toThrow();
+  });
+
+  test.each(['0', '0.000000001'])(
+    'builder grants refuse a maxFeeRate of %s, as the server does',
+    (maxFeeRate) => {
+      expectCode(
+        () =>
+          createSessionGrant(
+            params({ builder: { account: BUILDER, maxFeeRate } }),
+          ),
+        'INVALID_FIELD',
+      );
+    },
+  );
+
+  test('a builder expiry must be after issuedAt', () => {
+    expectCode(
+      () =>
+        createSessionGrant(
+          params({
+            builder: { account: BUILDER, maxFeeRate: '0.0005', expiresAt: T0 },
+          }),
+        ),
+      'INVALID_FIELD',
+    );
+    expect(() =>
+      createSessionGrant(
+        params({
+          builder: {
+            account: BUILDER,
+            maxFeeRate: '0.0025',
+            expiresAt: T0 + 1,
+          },
+        }),
       ),
     ).not.toThrow();
   });
@@ -756,7 +808,6 @@ describe('PasskeyGrant', () => {
       builderAccount: BUILDER,
       ceiling: {
         ...base.ceiling,
-        // Builder passkeys need a numeric loss cap.
         limits: { ...base.ceiling.limits, maxLoss: '1000' },
         includeFutureSubaccounts: true,
       },
@@ -1541,17 +1592,23 @@ describe('limits the server does not enforce', () => {
     );
   });
 
-  test('builder grants are refused until maxLoss is enforced', () => {
+  test('builder grants follow the normal limit rules', () => {
     const builder = { account: BUILDER, maxFeeRate: '0.0005' };
-    for (const maxLoss of ['none', '5000']) {
-      expectCode(
-        () =>
-          createSessionGrant(
-            launch({ builder, limits: { ...UNCAPPED_LIMITS, maxLoss } }),
-          ),
-        'BUILDER_LIMITS_REQUIRED',
-      );
-    }
+    const grant = createSessionGrant(
+      launch({ builder, limits: UNCAPPED_LIMITS }),
+    );
+    expect(grant.builder.account).toBe(BUILDER);
+    expect(grant.limits).toEqual(UNCAPPED_LIMITS);
+    expectCode(
+      () =>
+        createSessionGrant(
+          launch({
+            builder,
+            limits: { ...UNCAPPED_LIMITS, maxLoss: '5000' },
+          }),
+        ),
+      'LIMIT_INVALID',
+    );
     expect(() =>
       createSessionGrant(
         launch({
@@ -1563,7 +1620,7 @@ describe('limits the server does not enforce', () => {
     ).not.toThrow();
   });
 
-  test('builder passkeys are refused; first-party ones may be uncapped', () => {
+  test('builder and first-party passkeys may be uncapped', () => {
     const firstParty = {
       ...passkeyGrant(),
       ceiling: { ...passkeyGrant().ceiling, limits: UNCAPPED_LIMITS },
@@ -1571,13 +1628,13 @@ describe('limits the server does not enforce', () => {
     expect(() => {
       validatePasskeyGrant(firstParty);
     }).not.toThrow();
-    expectCode(() => {
+    expect(() => {
       validatePasskeyGrant({
         ...firstParty,
         builderAccount: BUILDER,
         ceiling: { ...firstParty.ceiling, includeFutureSubaccounts: false },
       });
-    }, 'BUILDER_LIMITS_REQUIRED');
+    }).not.toThrow();
   });
 
   test('a mint skips unlisted limits against its ceiling', () => {
@@ -1611,9 +1668,7 @@ describe('limits the server does not enforce', () => {
 });
 
 describe('builder passkeys and caps while limits are unenforced', () => {
-  // The server checks maxLoss when a builder passkey registers, not on its
-  // mints, so a mint stating only unenforced limits passes.
-  test('a mint under a builder passkey is checked like any other', () => {
+  test('a mint under a builder passkey follows the normal limit rules', () => {
     const grant = vectorOf((v) => v.name === 'passkey-grant-builder')
       .message as unknown as PasskeyGrant;
     const builderMint = vectorOf(
@@ -1624,6 +1679,9 @@ describe('builder passkeys and caps while limits are unenforced', () => {
     expect(() => {
       assertMintWithinCeiling(uncapped, grant, now);
     }).not.toThrow();
+    expectCode(() => {
+      assertMintWithinCeiling(builderMint, grant, now);
+    }, 'LIMIT_INVALID');
     expect(() => {
       assertMintWithinCeiling(builderMint, grant, now, ENFORCED);
     }).not.toThrow();
@@ -1867,5 +1925,122 @@ describe('signing with the SDK signer', () => {
     expect(ethers.recoverAddress(hashEip712(typedData), signature)).toBe(
       wallet.address,
     );
+  });
+});
+
+describe('builder approvals', () => {
+  const approvalParams = (
+    overrides: Partial<CreateBuilderApprovalParams> = {},
+  ): CreateBuilderApprovalParams => ({
+    paradexChain: 'PRIVATE_SN_PARACLEAR_MAINNET',
+    environment: 'mainnet',
+    account: ACCOUNT,
+    builder: { account: BUILDER, maxFeeRate: '0.0005' },
+    issuedAt: T0,
+    nonce: '0x1',
+    ...overrides,
+  });
+
+  test('canonical, with the server field order and a default expiry', () => {
+    const approval = createBuilderApproval(
+      approvalParams({
+        account: `0x00${ACCOUNT.slice(2)}`,
+        subaccounts: ['0x0abc'],
+      }),
+    );
+    expect(Object.keys(approval)).toEqual([
+      'paradexChain',
+      'environment',
+      'account',
+      'builder',
+      'subaccounts',
+      'nonce',
+      'issuedAt',
+    ]);
+    expect(approval.account).toBe(ACCOUNT);
+    expect(approval.subaccounts).toEqual(['0xabc']);
+    expect(approval.builder.expiresAt).toBe(T0 + BUILDER_APPROVAL_TTL_MAX);
+    const td = buildBuilderApprovalEip712(approval, 42161);
+    expect(td.primaryType).toBe('BuilderApproval');
+    expect(td.domain).toEqual({
+      name: 'Paradex Session',
+      version: '1',
+      chainId: 42161,
+    });
+  });
+
+  test.each([
+    [{ builder: { account: '0x0', maxFeeRate: '0.0005' } }, 'INVALID_FIELD'],
+    [{ builder: { account: ACCOUNT, maxFeeRate: '0.0005' } }, 'INVALID_FIELD'],
+    [{ builder: { account: BUILDER, maxFeeRate: '0' } }, 'INVALID_FIELD'],
+    [
+      { builder: { account: BUILDER, maxFeeRate: '0.000000001' } },
+      'INVALID_FIELD',
+    ],
+    [
+      { builder: { account: BUILDER, maxFeeRate: '0.000500000' } },
+      'INVALID_FIELD',
+    ],
+    [
+      { builder: { account: BUILDER, maxFeeRate: '0.0005', expiresAt: T0 } },
+      'INVALID_FIELD',
+    ],
+    [{ ttlSeconds: BUILDER_APPROVAL_TTL_MAX + 1 }, 'TTL_EXCEEDED'],
+    [{ subaccounts: [ACCOUNT] }, 'INVALID_FIELD'],
+  ] as Array<[Partial<CreateBuilderApprovalParams>, string]>)(
+    'refuses %j',
+    (overrides, code) => {
+      expectCode(() => createBuilderApproval(approvalParams(overrides)), code);
+    },
+  );
+
+  test('accepts the bounds', () => {
+    expect(() =>
+      createBuilderApproval(
+        approvalParams({
+          builder: { account: BUILDER, maxFeeRate: '0.0025' },
+          ttlSeconds: BUILDER_APPROVAL_TTL_MAX,
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      createBuilderApproval(
+        approvalParams({
+          builder: { account: BUILDER, maxFeeRate: '0.00000001' },
+        }),
+      ),
+    ).not.toThrow(); // The server sets the highest rate it accepts, so a rate above 25 bps signs.
+    expect(() =>
+      createBuilderApproval(
+        approvalParams({ builder: { account: BUILDER, maxFeeRate: '0.01' } }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      createSessionGrant(
+        params({ builder: { account: BUILDER, maxFeeRate: '0.01' } }),
+      ),
+    ).not.toThrow();
+  });
+
+  test('takes builder.expiresAt, so a grant builder passed in keeps its expiry', () => {
+    const builder = {
+      account: BUILDER,
+      maxFeeRate: '0.0005',
+      expiresAt: T0 + 3600,
+    };
+    expect(
+      createBuilderApproval(approvalParams({ builder })).builder.expiresAt,
+    ).toBe(T0 + 3600);
+  });
+
+  test('an expiresAt of 0 is refused, not taken to follow a session', () => {
+    const approval = createBuilderApproval(approvalParams());
+    const unexpiring: BuilderApproval = {
+      ...approval,
+      builder: { ...approval.builder, expiresAt: 0 },
+    };
+    expectCode(() => {
+      validateBuilderApproval(unexpiring);
+    }, 'INVALID_FIELD');
   });
 });

@@ -33,6 +33,9 @@ export const Signer = {
  */
 export const SessionTypedData = {
   createGrant: _SessionTypedData.createSessionGrant,
+  createBuilderApproval: _SessionTypedData.createBuilderApproval,
+  validateBuilderApproval: _SessionTypedData.validateBuilderApproval,
+  buildBuilderApprovalEip712: _SessionTypedData.buildBuilderApprovalEip712,
   validateGrant: _SessionTypedData.validateSessionGrant,
   validatePasskeyGrant: _SessionTypedData.validatePasskeyGrant,
   validateMint: _SessionTypedData.validateSessionMint,
@@ -69,6 +72,7 @@ export const Session = {
 
 export {
   ALL_LIMITS,
+  BUILDER_APPROVAL_TTL_MAX,
   CEILING_LIMITS,
   DEFAULT_ENFORCED_LIMITS,
   DEFAULT_LIMIT_CAPS,
@@ -113,7 +117,9 @@ export type { Eip712TypedData, Eip712Domain } from './eip712.js';
 export type {
   AssertMintOptions,
   Builder,
+  BuilderApproval,
   Ceiling,
+  CreateBuilderApprovalParams,
   CreateSessionGrantParams,
   LimitCaps,
   LimitName,
@@ -130,8 +136,10 @@ export type {
   ValidatePasskeyGrantOptions,
 } from './session-typed-data.js';
 export type {
+  ApproveBuilderParams,
   EvmSubaccount,
   OpenSessionParams,
+  RegisteredBuilderApproval,
   Session as RegisteredSession,
   SessionConnectorParams,
   SessionOnboardingParams,
