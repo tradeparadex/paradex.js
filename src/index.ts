@@ -83,7 +83,7 @@ export {
   UNCAPPED_LIMITS,
 } from './session-typed-data.js';
 export { SessionConnector } from './session-connector.js';
-export { BUILDER_STATS_WINDOWS, BuilderCodesClient } from './builder-codes.js';
+export { BuilderCodesClient } from './builder-codes.js';
 export type {
   BuilderApprovalRecord,
   BuilderApprovalStatus,

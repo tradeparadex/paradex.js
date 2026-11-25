@@ -309,6 +309,10 @@ describe('BuilderOrder', () => {
     [{ builder: '0x0' }, /non-zero/],
     [{ builder: '5b0b' }, /non-zero/],
     [{ builder: `0x${'1'.repeat(65)}` }, /non-zero/],
+    [
+      { builder: `0x${(2n ** 251n + 17n * 2n ** 192n + 1n).toString(16)}` },
+      /non-zero/,
+    ],
     [{ builderFeeRate: '0' }, /above 0/],
     [{ builderFeeRate: '-0.0005' }, /builderFeeRate/],
     [{ builderFeeRate: '0.000000001' }, /8 decimal places/],

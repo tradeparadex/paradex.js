@@ -1,6 +1,8 @@
 import BigNumber from 'bignumber.js';
 import * as Starknet from 'starknet';
 
+import { builderAddress } from './session-typed-data.js';
+
 /**
  * Typed data a session key signs: the `/auth` request that mints a JWT and
  * the orders it places. Both are today's SNIP-12 (revision 0) "Paradex"
@@ -131,9 +133,7 @@ export function orderBuilder(
   if (builder == null || builderFeeRate == null) {
     throw new Error('builder and builderFeeRate must be set together');
   }
-  if (!/^0x[0-9a-fA-F]{1,64}$/.test(builder) || BigInt(builder) === 0n) {
-    throw new Error('builder must be a non-zero 0x-prefixed hex address');
-  }
+  builderAddress(builder);
   const rate = toChainQuantums(builderFeeRate, 'builderFeeRate');
   if (rate === '0') throw new Error('builderFeeRate must be above 0');
   return { builder, builderFeeRate: rate };

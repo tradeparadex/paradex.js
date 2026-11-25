@@ -5,7 +5,10 @@ import {
   type HttpRequest,
   type HttpTransport,
 } from './session-transport.js';
-import type { SessionEnvironment } from './session-typed-data.js';
+import {
+  builderAddress,
+  type SessionEnvironment,
+} from './session-typed-data.js';
 
 /**
  * Builder Codes reads: an owner's builder approvals (list and revoke) and
@@ -15,8 +18,16 @@ import type { SessionEnvironment } from './session-typed-data.js';
  */
 
 export const BUILDER_APPROVALS_LIST_PATH = '/v2/builders/approvals';
-export const BUILDER_STATS_WINDOWS = ['24h', '7d', '30d', 'all'] as const;
-export type BuilderStatsWindow = (typeof BUILDER_STATS_WINDOWS)[number];
+/**
+ * A stats window. The server answers 400 for a window it does not serve, so
+ * any string is passed through.
+ */
+export type BuilderStatsWindow =
+  | '24h'
+  | '7d'
+  | '30d'
+  | 'all'
+  | (string & Record<never, never>);
 
 /** A builder as the API names it. */
 export interface BuilderRef {
@@ -117,13 +128,14 @@ export class BuilderCodesClient {
 
   /**
    * `DELETE /v2/builders/approvals/{builder_account}`: new orders naming the
-   * builder are refused at once, on the account and its sub-accounts. A
+   * builder are refused at once, on the account and its sub-accounts, and
+   * the resting orders naming it there are cancelled. A
    * builder with no live approval is a 404 `SessionApiError`.
    */
   async revokeApproval(token: string, builderAccount: string): Promise<void> {
     await this.send({
       method: 'DELETE',
-      url: `${this.apiUrl}${BUILDER_APPROVALS_LIST_PATH}/${builderAddress(builderAccount)}`,
+      url: `${this.apiUrl}${BUILDER_APPROVALS_LIST_PATH}/${builderAddress(builderAccount, 'builderAccount')}`,
       headers: bearer(token),
     });
   }
@@ -136,24 +148,20 @@ export class BuilderCodesClient {
   async fetchStats(builderAccount: string): Promise<BuilderStats[]> {
     return await this.results<BuilderStats>({
       method: 'GET',
-      url: `${this.apiUrl}/v1/builders/${builderAddress(builderAccount)}/stats`,
+      url: `${this.apiUrl}/v1/builders/${builderAddress(builderAccount, 'builderAccount')}/stats`,
       headers: {},
     });
   }
 
   /**
    * `GET /v1/builders/leaderboard`: builders ranked by `fees_paid` over one
-   * window, then by volume. The server's default window is `7d`.
+   * window, then by volume. The server's default window is `7d`, and it
+   * answers 400 for a window it does not serve.
    */
   async fetchLeaderboard(
     window?: BuilderStatsWindow,
   ): Promise<BuilderLeaderboardRow[]> {
-    if (window != null && !BUILDER_STATS_WINDOWS.includes(window)) {
-      throw new Error(
-        `window must be one of ${BUILDER_STATS_WINDOWS.join(', ')}`,
-      );
-    }
-    const query = window != null ? `?window=${window}` : '';
+    const query = window != null ? `?window=${encodeURIComponent(window)}` : '';
     return await this.results<BuilderLeaderboardRow>({
       method: 'GET',
       url: `${this.apiUrl}/v1/builders/leaderboard${query}`,
@@ -187,15 +195,4 @@ function bearer(token: string): Record<string, string> {
     throw new Error("token must be the account owner's JWT");
   }
   return { Authorization: `Bearer ${token}` };
-}
-
-/** A builder account as a canonical 0x address for a URL path. */
-function builderAddress(builderAccount: string): string {
-  if (
-    typeof builderAccount !== 'string' ||
-    !/^0x[0-9a-fA-F]{1,64}$/.test(builderAccount)
-  ) {
-    throw new Error('builderAccount must be a 0x hex address');
-  }
-  return `0x${BigInt(builderAccount).toString(16)}`;
 }

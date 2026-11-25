@@ -118,16 +118,16 @@ describe('BuilderCodesClient', () => {
 
   test('refuses bad input before sending', async () => {
     const { client, transport } = setup();
-    await expect(client.fetchStats('builder')).rejects.toThrow(
-      'builderAccount must be a 0x hex address',
-    );
-    await expect(client.revokeApproval('jwt-1', '0x')).rejects.toThrow(
-      'builderAccount must be a 0x hex address',
-    );
+    const prime = 2n ** 251n + 17n * 2n ** 192n + 1n;
+    for (const bad of ['builder', '0x', '0x0', `0x${prime.toString(16)}`]) {
+      await expect(client.fetchStats(bad)).rejects.toThrow(
+        'builderAccount must be a non-zero 0x-prefixed hex address',
+      );
+      await expect(client.revokeApproval('jwt-1', bad)).rejects.toThrow(
+        'builderAccount must be a non-zero 0x-prefixed hex address',
+      );
+    }
     await expect(client.listApprovals('')).rejects.toThrow('token');
-    await expect(
-      client.fetchLeaderboard('1h' as unknown as '7d'),
-    ).rejects.toThrow('window must be one of');
     expect(transport).not.toHaveBeenCalled();
   });
 

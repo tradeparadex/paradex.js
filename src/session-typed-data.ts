@@ -515,6 +515,23 @@ export const SESSION_MINT_SNIP12_TYPES: Starknet.TypedData['types'] = {
 
 /** Starknet field prime. */
 const FELT_PRIME = 2n ** 251n + 17n * 2n ** 192n + 1n;
+/**
+ * A builder account in canonical `0x` form, refusing anything but a
+ * non-zero felt address. Orders and the Builder Codes calls share it.
+ *
+ * @internal
+ */
+export function builderAddress(value: string, name = 'builder'): string {
+  if (
+    typeof value !== 'string' ||
+    !/^0x[0-9a-fA-F]{1,64}$/.test(value) ||
+    BigInt(value) === 0n ||
+    BigInt(value) >= FELT_PRIME
+  ) {
+    throw new Error(`${name} must be a non-zero 0x-prefixed hex address`);
+  }
+  return `0x${BigInt(value).toString(16)}`;
+}
 /** Upper bound (exclusive) of a Starknet contract address. */
 const ADDRESS_BOUND = 2n ** 251n - 256n;
 const NONCE_BOUND = 2n ** 128n;
