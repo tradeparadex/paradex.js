@@ -422,6 +422,25 @@ const { approval } = await connector.approveBuilder({
 });
 ```
 
+### Builder Codes approvals and stats (experimental)
+
+`BuilderCodesClient` reads an account's builder approvals and the public Builder Codes stats.
+
+- `listApprovals(token)` lists the account's live approvals, newest first. Pass `{ includeInactive: true }` to add revoked and expired ones, for the history. Each approval has a `status` (`active`, `revoked` or `expired`), a `max_fee_rate`, and `expires_at`, `approved_at` and `revoked_at` in milliseconds.
+- `revokeApproval(token, builderAccount)` revokes an approval. New orders naming that builder are refused at once, and its resting orders on the account and its sub-accounts are cancelled.
+- Both calls need the account owner's main-key JWT as `token`. A session or subkey token is refused. Listing is also refused for an account Paradex has not enabled sessions for.
+- `fetchStats(builderAccount)` returns one row per window (`24h`, `7d`, `30d`, `all`). `fees_paid` is what traders paid the builder in USDC, before any protocol share.
+- `fetchLeaderboard(window)` ranks builders by `fees_paid` over one window, `7d` by default. The server answers 400 for a window it does not serve.
+- Stats lag the fills they count. `fetchStats` answers 404 for a builder with no recorded stats, and both stats calls answer 404 while the server has none to serve at all.
+
+```ts
+const builders = new Paradex.BuilderCodesClient({ environment: 'testnet' });
+const approvals = await builders.listApprovals(ownerJwt, {
+  includeInactive: true,
+});
+const leaderboard = await builders.fetchLeaderboard('30d');
+```
+
 ## Best Practices
 
 ### 1. Environment Variables
